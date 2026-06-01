@@ -257,3 +257,76 @@ def test_summary_generation_after_eval(client):
 
     detail = client.get(f"/api/courses/{course_id}").json()
     assert detail["status"] == "completed"
+
+
+# --- Issue #3: 思考题抽取与复盘对齐 ---
+
+def test_extract_thought_questions():
+    """抽取函数应只取出 ## 思考题 区块的全部题目，不混入正文或反馈区。"""
+    from app.courses import _extract_thought_questions
+    content = (
+        "# 第一章\n\n## 正文内容\n\n一些正文。\n\n"
+        "## 思考题\n\n1. 第一题问什么？\n2. 第二题问什么？\n3. 第三题问什么？\n\n"
+        "## 你的反馈\n\n> 写反馈\n"
+    )
+    q = _extract_thought_questions(content)
+    assert "1. 第一题问什么？" in q
+    assert "2. 第二题问什么？" in q
+    assert "3. 第三题问什么？" in q
+    assert "一些正文" not in q
+    assert "写反馈" not in q
+
+
+def test_extract_thought_questions_absent():
+    """没有思考题区块或空内容时返回空字符串。"""
+    from app.courses import _extract_thought_questions
+    assert _extract_thought_questions("# 标题\n\n没有思考题区块") == ""
+    assert _extract_thought_questions("") == ""
+
+
+def test_next_lesson_prompt_contains_full_questions_when_long(client):
+    """回归 issue #3：思考题位于长课文末尾（超过旧的 2000 字符截断）时，
+    生成下一篇的 prompt 必须包含完整的真实思考题，而不是被截断丢失。"""
+    course_id = _setup_course(client)
+
+    from app.models import Lesson
+    import app.database as app_database
+
+    body = "这是一段用于撑长正文的内容。" * 300  # 远超 2000 字符
+    q1 = "数组和元组在内存布局上的本质区别是什么？"
+    q2 = "什么场景下应该用 loop 而不是 while？请举一个具体例子。"
+    q3 = "为什么累加变量 total 必须声明为 mut？不加会发生什么？"
+    long_content = (
+        f"# 第一章\n\n## 正文内容\n\n{body}\n\n"
+        f"## 思考题\n\n1. {q1}\n2. {q2}\n3. {q3}\n\n"
+        f"## 你的反馈\n\n> 在此写反馈\n"
+    )
+
+    with app_database.SessionLocal() as db:
+        lesson = db.query(Lesson).filter(
+            Lesson.course_id == course_id, Lesson.number == 1
+        ).first()
+        lesson.content = long_content
+        db.commit()
+
+    client.post(f"/api/courses/{course_id}/lessons/1/feedback", json={
+        "content": "懂了", "thought_answers": "",
+    })
+
+    next_stream = _make_mock_stream(["# 第二章\n\n## 上一篇思考题复盘\n\n内容"])
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = next_stream
+        mock_get_client.return_value = mock_client
+
+        res = client.post(f"/api/courses/{course_id}/next")
+        assert res.status_code == 200
+        _ = res.text  # 消费流，触发生成
+
+        call_args = mock_client.chat.completions.create.call_args
+        messages = call_args.kwargs["messages"]
+        prompt_text = "\n".join(m["content"] for m in messages)
+
+    assert q1 in prompt_text, "第1题应出现在 prompt 中"
+    assert q2 in prompt_text, "第2题应出现在 prompt 中"
+    assert q3 in prompt_text, "第3题应出现在 prompt 中（旧实现会因 2000 字符截断而丢失）"
