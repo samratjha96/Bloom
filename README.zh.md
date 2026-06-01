@@ -48,8 +48,8 @@
 只需要 [Claude Code](https://claude.com/claude-code)，无需后端。
 
 ```bash
-git clone https://github.com/Li-Evan/Bloom-one-vs-one-study.git
-cd Bloom-one-vs-one-study
+git clone https://github.com/Li-Evan/Bloom.git
+cd Bloom
 claude
 ```
 
@@ -68,8 +68,8 @@ claude
 ### 安装
 
 ```bash
-git clone https://github.com/Li-Evan/Bloom-one-vs-one-study.git
-cd Bloom-one-vs-one-study
+git clone https://github.com/Li-Evan/Bloom.git
+cd Bloom
 
 # 配置
 cp .env.example .env

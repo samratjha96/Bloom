@@ -48,8 +48,8 @@ Both follow the same flow: **syllabus → lesson → annotate → feedback → n
 Requires only [Claude Code](https://claude.com/claude-code). No backend.
 
 ```bash
-git clone https://github.com/Li-Evan/Bloom-one-vs-one-study.git
-cd Bloom-one-vs-one-study
+git clone https://github.com/Li-Evan/Bloom.git
+cd Bloom
 claude
 ```
 
@@ -68,8 +68,8 @@ See [GUIDE.md](./GUIDE.md) for the full walkthrough.
 ### Setup
 
 ```bash
-git clone https://github.com/Li-Evan/Bloom-one-vs-one-study.git
-cd Bloom-one-vs-one-study
+git clone https://github.com/Li-Evan/Bloom.git
+cd Bloom
 
 # Configure
 cp .env.example .env
