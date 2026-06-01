@@ -85,13 +85,21 @@ export default function LessonPage() {
   };
 
   const handleTextSelect = () => {
-    const selection = window.getSelection();
-    const text = selection?.toString().trim();
-    if (text && text.length > 0 && contentRef.current?.contains(selection.anchorNode)) {
+    try {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+      const text = sel.toString().trim();
+      if (!text) return;
+      // 用选区的公共祖先节点判断是否落在课文区，而非只看 anchorNode（更稳健、跨浏览器一致）
+      const node = sel.getRangeAt(0).commonAncestorContainer;
+      const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode;
+      if (!contentRef.current?.contains(el)) return;
       setSelectedText(text);
       setSelectionRange({ start: 0, end: text.length });
       setShowAnnotation(true);
       setAnnotationComment('');
+    } catch (e) {
+      console.error('handleTextSelect failed', e);
     }
   };
 
