@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  简体中文 · <a href="./README.md">English</a>
+  <a href="https://li-evan.github.io/Bloom/"><strong>🌐 官网</strong></a> · 简体中文 · <a href="./README.md">English</a>
 </p>
 
 ---

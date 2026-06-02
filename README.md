@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="./README.zh.md">Chinese</a> · English
+  <a href="https://li-evan.github.io/Bloom/"><strong>🌐 Website</strong></a> · <a href="./README.zh.md">Chinese</a> · English
 </p>
 
 ---
@@ -171,6 +171,7 @@ make up / make down   # docker start / stop
 │       ├── CoursePage     # syllabus + lesson list
 │       └── LessonPage     # reader + annotations + feedback + AI gen
 ├── example/               # pre-built topics for CLI mode
+├── site/                  # marketing website (standalone Astro static build, decoupled from the app)
 └── skills/                # portable Claude Code skills (bloom-tutor + learn-*)
 ```
 

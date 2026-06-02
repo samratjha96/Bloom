@@ -34,14 +34,11 @@ npm run preview    # serve the production build locally
 `site/dist` is a plain static bundle — deploy it anywhere (Vercel, Netlify,
 Cloudflare Pages, GitHub Pages, S3…). The app's own deploy is unaffected.
 
-**GitHub Pages:** a manual workflow lives at
-[`../.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml).
-To use it:
-
-1. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions**
-2. Run the **"Deploy site to GitHub Pages"** workflow (Actions tab → Run workflow)
-3. If serving from a project page (`li-evan.github.io/Bloom`), uncomment `base: '/Bloom'`
-   in `astro.config.mjs`. For a custom domain, set `site:` and add `public/CNAME`.
+**GitHub Pages (live):** deployed at **<https://li-evan.github.io/Bloom/>** via
+[`../.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml),
+which auto-runs on every change under `site/`. `astro.config.mjs` already sets
+`base: '/Bloom'` for the project page. For a custom domain or user page, set `base`
+back to `'/'`, point `site:` at the domain, and add `public/CNAME`.
 
 The "Get started" CTAs link to the [GitHub repo](https://github.com/Li-Evan/Bloom)
 and the local quick-start. If you ever host the web app publicly, point those CTAs
