@@ -37,7 +37,18 @@ git clone https://github.com/Li-Evan/Bloom-one-vs-one-study.git
 cd Bloom-one-vs-one-study
 ```
 
-### Step 2: Launch Claude Code
+### Step 2: Install the Tutor Skill
+
+Install the bundled tutor skill into this clone's local Claude Code skills directory:
+
+```bash
+mkdir -p .claude/skills
+cp -R skills/bloom-tutor .claude/skills/
+```
+
+This keeps the public tutoring protocol in `skills/bloom-tutor/` instead of relying on local agent instruction files.
+
+### Step 3: Launch Claude Code
 
 Start Claude Code in the repository directory:
 
@@ -45,9 +56,9 @@ Start Claude Code in the repository directory:
 claude
 ```
 
-Claude will automatically read `CLAUDE.md` in the repository and load all tutor rules. **No additional configuration needed** — the system is ready to go.
+Ask Claude to use the `bloom-tutor` skill when starting or continuing a course.
 
-### Step 3: Start Your First Topic
+### Step 4: Start Your First Topic
 
 In the Claude Code conversation, type:
 
@@ -203,7 +214,7 @@ Entirely on your local filesystem, in the cloned repository directory. No data i
 
 ### Q: Can I use other AI?
 
-`CLAUDE.md` is designed for Claude Code. In theory, other AI agents that support similar instruction files could work, but results may vary.
+The bundled `skills/bloom-tutor` package is designed for Claude Code Skills. Other AI agents can work if you import the same instructions into their equivalent skill/instruction system, but results may vary.
 
 ### Q: What if I want to change direction mid-course?
 

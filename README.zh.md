@@ -50,6 +50,11 @@
 ```bash
 git clone https://github.com/Li-Evan/Bloom.git
 cd Bloom
+
+# 将导师 skill 安装到当前 clone 的本地 Claude Code skills 目录
+mkdir -p .claude/skills
+cp -R skills/bloom-tutor .claude/skills/
+
 claude
 ```
 

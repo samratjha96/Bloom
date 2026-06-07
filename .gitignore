@@ -38,5 +38,19 @@ build/
 
 docs/CHANGELOG.md
 docs/ARCHITECTURE.md
-CLAUDE.md
 docs/AUTORESEARCH-METHOD.md
+
+# 本地 AI Agent 指令文件：只指导当前工作区，不作为项目内容发布
+/CLAUDE.md
+/Claude.md
+/claude.md
+/CLAUDE.zh.md
+/AGENTS.md
+/AGENT.md
+/Agent.md
+/agent.md
+/agents.md
+
+# 本地 Claude/Codex 配置
+/.claude/
+/.codex/

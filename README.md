@@ -50,6 +50,11 @@ Requires only [Claude Code](https://claude.com/claude-code). No backend.
 ```bash
 git clone https://github.com/Li-Evan/Bloom.git
 cd Bloom
+
+# Install the tutor skill locally for this clone
+mkdir -p .claude/skills
+cp -R skills/bloom-tutor .claude/skills/
+
 claude
 ```
 
@@ -172,7 +177,6 @@ make up / make down   # docker start / stop
 ## Project Structure
 
 ```
-├── Claude.md              # AI tutor instructions (CLI mode)
 ├── GUIDE.md               # CLI usage guide
 ├── .env.example           # env template
 ├── backend/
