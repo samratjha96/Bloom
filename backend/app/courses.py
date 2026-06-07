@@ -452,6 +452,23 @@ def _call_llm_messages(system_prompt: str, history: list[dict]) -> str:
     return response.choices[0].message.content
 
 
+def _stream_llm_messages(system_prompt: str, history: list[dict]):
+    """Streaming multi-turn LLM call. Yields (chunk, False) then (full_text, True)."""
+    client = get_openai_client()
+    stream = client.chat.completions.create(
+        model=settings.LLM_MODEL,
+        messages=[{"role": "system", "content": system_prompt}, *history],
+        stream=True,
+    )
+    full_response = ""
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta.content:
+            content = chunk.choices[0].delta.content
+            full_response += content
+            yield content, False
+    yield full_response, True
+
+
 async def _extract_upload_text(file: UploadFile) -> tuple[str, str]:
     """Return (filename, extracted text) for a PDF, TXT, or Markdown upload."""
     filename = file.filename or "uploaded-source"
@@ -542,10 +559,10 @@ def _format_annotations(annotations: list[Annotation]) -> str:
     return "\n".join(blocks)
 
 
-def _answer_annotation_thread(course: Course, lesson: Lesson, selected_text: str, history: list[dict]) -> str:
-    """Answer the latest question in a highlight conversation, given full context + thread."""
+def _annotation_system_prompt(course: Course, lesson: Lesson, selected_text: str) -> str:
+    """Build the system prompt for a highlight Q&A turn: tutor instructions + full lesson + selection."""
     context = course.source_content if course.mode == "source" and lesson.is_source else lesson.content
-    system_prompt = f"""{ANNOTATION_ANSWER_PROMPT}
+    return f"""{ANNOTATION_ANSWER_PROMPT}
 
 ## 当前学习材料
 {context}
@@ -553,7 +570,6 @@ def _answer_annotation_thread(course: Course, lesson: Lesson, selected_text: str
 ## 学生划线内容
 {selected_text}
 """
-    return _strip_markdown_fences(_call_llm_messages(system_prompt, history))
 
 
 def _count_mastery_items(syllabus_content: str) -> tuple[int, int]:
@@ -826,13 +842,14 @@ def get_lesson(course_id: int, lesson_num: int, db: Session = Depends(get_db)):
     return lesson
 
 
-@router.post("/courses/{course_id}/lessons/{lesson_num}/annotations", response_model=AnnotationResponse)
+@router.post("/courses/{course_id}/lessons/{lesson_num}/annotations")
 def create_annotation(
     course_id: int,
     lesson_num: int,
     req: CreateAnnotationRequest,
     db: Session = Depends(get_db),
 ):
+    """Highlight a passage and ask → the answer streams back (SSE); session is saved on completion."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -840,30 +857,45 @@ def create_annotation(
     if not lesson:
         raise HTTPException(status_code=404, detail="课文不存在")
 
-    # Every highlight now opens an answered Q&A session.
+    system_prompt = _annotation_system_prompt(course, lesson, req.original_text)
     history = [{"role": "user", "content": req.comment}]
-    try:
-        answer = _answer_annotation_thread(course, lesson, req.original_text, history)
-    except Exception:
-        logger.exception("Annotation answer generation error")
-        raise HTTPException(status_code=500, detail="划线问题回答失败，请稍后重试")
-    history.append({"role": "assistant", "content": answer})
+    lesson_id = lesson.id
+    pos_start, pos_end, anchor_top = req.position_start, req.position_end, req.anchor_top
+    original_text, comment = req.original_text, req.comment
+    cid, lnum = course_id, lesson_num
 
-    annotation = Annotation(
-        lesson_id=lesson.id,
-        position_start=req.position_start,
-        position_end=req.position_end,
-        original_text=req.original_text,
-        comment=req.comment,
-        answer=answer,
-        messages=json.dumps(history, ensure_ascii=False),
-        anchor_top=req.anchor_top,
-    )
-    db.add(annotation)
-    _record_event(db, course_id, "annotation_answered", lesson_number=lesson_num)
-    db.commit()
-    db.refresh(annotation)
-    return _annotation_to_response(annotation)
+    def generate():
+        try:
+            answer = ""
+            for content, is_final in _stream_llm_messages(system_prompt, history):
+                if is_final:
+                    answer = _strip_markdown_fences(content)
+                else:
+                    yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
+
+            full_history = history + [{"role": "assistant", "content": answer}]
+            annotation = Annotation(
+                lesson_id=lesson_id,
+                position_start=pos_start,
+                position_end=pos_end,
+                original_text=original_text,
+                comment=comment,
+                answer=answer,
+                messages=json.dumps(full_history, ensure_ascii=False),
+                anchor_top=anchor_top,
+            )
+            db.add(annotation)
+            _record_event(db, cid, "annotation_answered", lesson_number=lnum)
+            db.commit()
+            db.refresh(annotation)
+            payload = _annotation_to_response(annotation).model_dump(mode="json")
+            yield f"data: {json.dumps({'done': True, 'annotation': payload}, ensure_ascii=False)}\n\n"
+        except Exception:
+            logger.exception("Annotation answer streaming error")
+            db.rollback()
+            yield f"data: {json.dumps({'error': '划线问题回答失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.get("/courses/{course_id}/lessons/{lesson_num}/annotations", response_model=list[AnnotationResponse])
@@ -882,10 +914,7 @@ def get_annotations(
     return [_annotation_to_response(a) for a in annotations]
 
 
-@router.post(
-    "/courses/{course_id}/lessons/{lesson_num}/annotations/{annotation_id}/messages",
-    response_model=AnnotationResponse,
-)
+@router.post("/courses/{course_id}/lessons/{lesson_num}/annotations/{annotation_id}/messages")
 def add_annotation_message(
     course_id: int,
     lesson_num: int,
@@ -893,7 +922,7 @@ def add_annotation_message(
     req: AddAnnotationMessageRequest,
     db: Session = Depends(get_db),
 ):
-    """Follow-up question within an existing highlight session — appends a Q&A turn."""
+    """Follow-up question in an existing highlight session — the answer streams back (SSE)."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -906,21 +935,36 @@ def add_annotation_message(
     if not annotation:
         raise HTTPException(status_code=404, detail="批注不存在")
 
+    system_prompt = _annotation_system_prompt(course, lesson, annotation.original_text)
     history = _load_messages(annotation)
     history.append({"role": "user", "content": req.content})
-    try:
-        answer = _answer_annotation_thread(course, lesson, annotation.original_text, history)
-    except Exception:
-        logger.exception("Annotation follow-up answer error")
-        raise HTTPException(status_code=500, detail="追问回答失败，请稍后重试")
-    history.append({"role": "assistant", "content": answer})
+    aid = annotation.id
+    cid, lnum = course_id, lesson_num
 
-    annotation.messages = json.dumps(history, ensure_ascii=False)
-    annotation.answer = answer  # keep latest answer in legacy column
-    _record_event(db, course_id, "annotation_answered", lesson_number=lesson_num)
-    db.commit()
-    db.refresh(annotation)
-    return _annotation_to_response(annotation)
+    def generate():
+        try:
+            answer = ""
+            for content, is_final in _stream_llm_messages(system_prompt, history):
+                if is_final:
+                    answer = _strip_markdown_fences(content)
+                else:
+                    yield f"data: {json.dumps({'content': content}, ensure_ascii=False)}\n\n"
+
+            full_history = history + [{"role": "assistant", "content": answer}]
+            ann = db.query(Annotation).filter(Annotation.id == aid).first()
+            ann.messages = json.dumps(full_history, ensure_ascii=False)
+            ann.answer = answer  # keep latest answer in legacy column
+            _record_event(db, cid, "annotation_answered", lesson_number=lnum)
+            db.commit()
+            db.refresh(ann)
+            payload = _annotation_to_response(ann).model_dump(mode="json")
+            yield f"data: {json.dumps({'done': True, 'annotation': payload}, ensure_ascii=False)}\n\n"
+        except Exception:
+            logger.exception("Annotation follow-up streaming error")
+            db.rollback()
+            yield f"data: {json.dumps({'error': '追问回答失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.delete("/courses/{course_id}/lessons/{lesson_num}/annotations/{annotation_id}")

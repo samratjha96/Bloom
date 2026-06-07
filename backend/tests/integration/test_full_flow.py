@@ -4,7 +4,18 @@ Flow: create course → read lesson 1 → annotate → feedback → generate les
      → feedback → mark all mastery done → generate eval → generate summary
      → verify stats throughout.
 """
+import json
 from unittest.mock import patch, MagicMock
+
+
+def _sse_done(res):
+    """Extract the final `done` event payload from an SSE response."""
+    for line in res.text.splitlines():
+        if line.startswith("data: "):
+            data = json.loads(line[6:])
+            if data.get("done"):
+                return data
+    return None
 
 
 def _mock_response(content):
@@ -212,13 +223,18 @@ def test_complete_learning_journey(client):
     assert "概念A" in lesson1["content"]
     assert lesson1["is_evaluation"] is False
 
-    # ── Step 4: Add annotation to lesson 1 ──
-    ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
-        "position_start": 10,
-        "position_end": 30,
-        "original_text": "概念A 是本课题的基石",
-        "comment": "为什么说是基石？",
-    }).json()
+    # ── Step 4: Add annotation to lesson 1 (answer streams back via SSE) ──
+    with patch("app.courses.get_openai_client") as mock:
+        mc = MagicMock()
+        mc.chat.completions.create.return_value = _mock_stream(["因为它是后续概念的基础。"])
+        mock.return_value = mc
+        ann_res = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 10,
+            "position_end": 30,
+            "original_text": "概念A 是本课题的基石",
+            "comment": "为什么说是基石？",
+        })
+    ann = _sse_done(ann_res)["annotation"]
     assert ann["original_text"] == "概念A 是本课题的基石"
 
     annotations = client.get(f"/api/courses/{cid}/lessons/1/annotations").json()
@@ -393,15 +409,19 @@ def test_delete_annotation(client):
 
     cid = course["id"]
 
-    # Create two annotations
-    a1 = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
-        "position_start": 0, "position_end": 10,
-        "original_text": "概念A", "comment": "这个不太对",
-    }).json()
-    a2 = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
-        "position_start": 20, "position_end": 30,
-        "original_text": "基石", "comment": "为什么是基石",
-    }).json()
+    # Create two annotations (each answer streams back via SSE)
+    with patch("app.courses.get_openai_client") as mock:
+        mc = MagicMock()
+        mc.chat.completions.create.side_effect = [_mock_stream(["回答一"]), _mock_stream(["回答二"])]
+        mock.return_value = mc
+        a1 = _sse_done(client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 0, "position_end": 10,
+            "original_text": "概念A", "comment": "这个不太对",
+        }))["annotation"]
+        a2 = _sse_done(client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 20, "position_end": 30,
+            "original_text": "基石", "comment": "为什么是基石",
+        }))["annotation"]
 
     # Verify both exist
     anns = client.get(f"/api/courses/{cid}/lessons/1/annotations").json()
@@ -435,10 +455,14 @@ def test_delete_course(client):
     cid = course["id"]
 
     # Add some data
-    client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
-        "position_start": 0, "position_end": 5,
-        "original_text": "test", "comment": "test",
-    })
+    with patch("app.courses.get_openai_client") as mock:
+        mc = MagicMock()
+        mc.chat.completions.create.return_value = _mock_stream(["答"])
+        mock.return_value = mc
+        client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 0, "position_end": 5,
+            "original_text": "test", "comment": "test",
+        })
     client.post(f"/api/courses/{cid}/lessons/1/feedback", json={
         "content": "test", "thought_answers": "",
     })

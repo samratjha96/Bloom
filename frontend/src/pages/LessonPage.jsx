@@ -72,9 +72,10 @@ export default function LessonPage() {
   const [composer, setComposer] = useState(null);   // { top, selectedText, start, end, draft, saving } | null
   const [openId, setOpenId] = useState(null);       // expanded session id | null
   const [followDraft, setFollowDraft] = useState('');
-  const [followSaving, setFollowSaving] = useState(false);
+  const [streaming, setStreaming] = useState(false);  // a highlight answer is streaming in
+  const [streamText, setStreamText] = useState('');   // live streamed answer text
   const [tops, setTops] = useState({});             // session id -> px top within article (reflow-resilient)
-  const [cardPos, setCardPos] = useState(null);     // { x, y } drag translate for the active overlay
+  const [cardRect, setCardRect] = useState(null);   // { left, top, width, height } of the active overlay (drag + resize)
 
   const [generating, setGenerating] = useState(false);
   const [streamContent, setStreamContent] = useState('');
@@ -82,7 +83,6 @@ export default function LessonPage() {
 
   const contentRef = useRef(null);   // <article>
   const proseRef = useRef(null);     // markdown content only (excludes overlay)
-  const dragRef = useRef(null);
 
   useEffect(() => {
     setLoading(true);
@@ -96,7 +96,9 @@ export default function LessonPage() {
     setComposer(null);
     setOpenId(null);
     setFollowDraft('');
-    setCardPos(null);
+    setCardRect(null);
+    setStreaming(false);
+    setStreamText('');
 
     Promise.all([
       getLesson(courseId, lessonNum),
@@ -167,33 +169,63 @@ export default function LessonPage() {
     return () => { if (HL_SUPPORTED) CSS.highlights.delete('bloom-pending'); };
   }, [marker, composer, lesson?.content]);
 
+  // Initial geometry for an overlay card anchored near `top`, docked to the article's right edge.
+  const initRect = (top) => {
+    const width = 340;
+    const aw = contentRef.current?.clientWidth || 700;
+    const left = Math.max(8, aw - width - 8);
+    const height = Math.min(Math.round((window.innerHeight || 800) * 0.6), 460);
+    return { left, top: Math.max(0, top), width, height };
+  };
+
   const openSession = (id) => {
     setMarker(null);
     setComposer(null);
     setFollowDraft('');
-    setCardPos(null);
+    const top = tops[id] ?? (sessions.find((s) => s.id === id)?.anchor_top || 0);
+    setCardRect(initRect(top));
     setOpenId(id);
   };
 
   const openComposerFromMarker = () => {
     if (!marker) return;
     setOpenId(null);
-    setCardPos(null);
+    setCardRect(initRect(marker.top));
     setComposer({ ...marker, draft: '', saving: false });
     setMarker(null);
   };
 
-  // Drag the active overlay (composer or expanded session) by its header.
+  // Drag the active overlay by its header.
   const startDrag = (e) => {
+    if (!cardRect) return;
     e.preventDefault();
-    dragRef.current = { sx: e.clientX, sy: e.clientY, bx: cardPos?.x || 0, by: cardPos?.y || 0 };
+    const start = { mx: e.clientX, my: e.clientY, left: cardRect.left, top: cardRect.top };
+    const move = (ev) => setCardRect((r) => (r ? { ...r, left: start.left + ev.clientX - start.mx, top: Math.max(0, start.top + ev.clientY - start.my) } : r));
+    const up = () => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  };
+
+  // Resize the active overlay from any edge/corner. dir ∈ {n,s,e,w,ne,nw,se,sw}.
+  const startResize = (dir, e) => {
+    if (!cardRect) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const MIN_W = 260, MIN_H = 180;
+    const start = { mx: e.clientX, my: e.clientY, ...cardRect };
     const move = (ev) => {
-      const d = dragRef.current;
-      if (!d) return;
-      setCardPos({ x: d.bx + ev.clientX - d.sx, y: d.by + ev.clientY - d.sy });
+      const dx = ev.clientX - start.mx, dy = ev.clientY - start.my;
+      let { left, top, width, height } = start;
+      if (dir.includes('e')) width = Math.max(MIN_W, start.width + dx);
+      if (dir.includes('s')) height = Math.max(MIN_H, start.height + dy);
+      if (dir.includes('w')) { width = Math.max(MIN_W, start.width - dx); left = start.left + (start.width - width); }
+      if (dir.includes('n')) { height = Math.max(MIN_H, start.height - dy); top = Math.max(0, start.top + (start.height - height)); }
+      setCardRect({ left, top, width, height });
     };
     const up = () => {
-      dragRef.current = null;
       document.removeEventListener('mousemove', move);
       document.removeEventListener('mouseup', up);
     };
@@ -224,40 +256,84 @@ export default function LessonPage() {
   };
 
   const handleCreateSession = async () => {
-    if (!composer?.draft.trim()) return;
-    setComposer((c) => ({ ...c, saving: true }));
+    if (!composer?.draft.trim() || streaming) return;
+    const q = composer.draft.trim();
+    const tempId = `tmp-${Date.now()}`;
+    const temp = {
+      id: tempId,
+      original_text: composer.selectedText,
+      comment: q,
+      anchor_top: composer.top,
+      position_start: composer.start ?? 0,
+      position_end: composer.end ?? composer.selectedText.length,
+      messages: [{ role: 'user', content: q }],
+    };
+    setSessions((prev) => [...prev, temp]);
+    setOpenId(tempId);
+    setComposer(null);
+    // keep cardRect from the composer so the card doesn't jump as it becomes the session
+    setStreamText('');
+    setStreaming(true);
     setError('');
     try {
-      const ann = await createAnnotation(courseId, lessonNum, {
-        position_start: composer.start ?? 0,
-        position_end: composer.end ?? composer.selectedText.length,
-        original_text: composer.selectedText,
-        comment: composer.draft.trim(),
-        answer_immediately: true,
-        anchor_top: composer.top,
-      });
-      setSessions((prev) => [...prev, ann]);
-      setComposer(null);
-      setCardPos(null);
-      setOpenId(ann.id);
+      let finalAnn = null;
+      await createAnnotation(
+        courseId, lessonNum,
+        {
+          position_start: temp.position_start,
+          position_end: temp.position_end,
+          original_text: temp.original_text,
+          comment: q,
+          answer_immediately: true,
+          anchor_top: temp.anchor_top,
+        },
+        (chunk) => setStreamText((t) => t + chunk),
+        (data) => { finalAnn = data.annotation; },
+      );
+      if (finalAnn) {
+        setSessions((prev) => prev.map((s) => (s.id === tempId ? finalAnn : s)));
+        setOpenId(finalAnn.id);
+      } else {
+        setSessions((prev) => prev.filter((s) => s.id !== tempId));
+        setOpenId(null);
+      }
     } catch (err) {
       setError(err.message);
-      setComposer((c) => (c ? { ...c, saving: false } : c));
+      setSessions((prev) => prev.filter((s) => s.id !== tempId));
+      setOpenId(null);
+    } finally {
+      setStreaming(false);
+      setStreamText('');
     }
   };
 
   const handleFollowUp = async (sessionId) => {
-    if (!followDraft.trim()) return;
-    setFollowSaving(true);
+    if (!followDraft.trim() || streaming) return;
+    const q = followDraft.trim();
+    setFollowDraft('');
+    // optimistically show the user's question; reverted if the request fails
+    setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: [...s.messages, { role: 'user', content: q }] } : s)));
+    setStreamText('');
+    setStreaming(true);
     setError('');
     try {
-      const updated = await addAnnotationMessage(courseId, lessonNum, sessionId, followDraft.trim());
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)));
-      setFollowDraft('');
+      let finalAnn = null;
+      await addAnnotationMessage(
+        courseId, lessonNum, sessionId, q,
+        (chunk) => setStreamText((t) => t + chunk),
+        (data) => { finalAnn = data.annotation; },
+      );
+      if (finalAnn) {
+        setSessions((prev) => prev.map((s) => (s.id === sessionId ? finalAnn : s)));
+      } else {
+        setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
+      }
     } catch (err) {
       setError(err.message);
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
     } finally {
-      setFollowSaving(false);
+      setStreaming(false);
+      setStreamText('');
     }
   };
 
@@ -444,12 +520,12 @@ export default function LessonPage() {
             {composer && (
               <div
                 onMouseUp={(e) => e.stopPropagation()}
-                style={{ top: composer.top, transform: cardPos ? `translate(${cardPos.x}px, ${cardPos.y}px)` : undefined }}
-                className="absolute z-50 right-2 w-[330px] max-w-[calc(100%-1.5rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] p-4 anim-pop"
+                style={cardRect ? { left: cardRect.left, top: cardRect.top, width: cardRect.width } : { top: composer.top, right: 8, width: 340 }}
+                className="absolute z-50 max-w-[calc(100%-1rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] p-4 anim-pop"
               >
                 <div onMouseDown={startDrag} className="flex items-center justify-between mb-2 cursor-move select-none">
                   <span className="text-xs font-medium text-emerald-700">划线提问</span>
-                  <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setComposer(null); setCardPos(null); }} className="text-stone-300 hover:text-stone-500 transition-colors p-0.5">
+                  <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setComposer(null); setCardRect(null); }} className="text-stone-300 hover:text-stone-500 transition-colors p-0.5">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
@@ -467,13 +543,13 @@ export default function LessonPage() {
                   className="w-full border border-stone-200 rounded-lg p-2.5 text-sm resize-none h-20 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
                 />
                 <div className="flex justify-end gap-2 mt-2">
-                  <button onClick={() => { setComposer(null); setCardPos(null); }} className="px-3 py-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors">取消</button>
+                  <button onClick={() => { setComposer(null); setCardRect(null); }} className="px-3 py-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors">取消</button>
                   <button
                     onClick={handleCreateSession}
-                    disabled={!composer.draft.trim() || composer.saving}
+                    disabled={!composer.draft.trim()}
                     className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-all duration-200 cursor-pointer"
                   >
-                    {composer.saving ? '回答中...' : '提问'}
+                    提问
                   </button>
                 </div>
               </div>
@@ -485,8 +561,10 @@ export default function LessonPage() {
                 <div
                   key={`open-${s.id}`}
                   onMouseUp={(e) => e.stopPropagation()}
-                  style={{ top: tops[s.id] ?? s.anchor_top, transform: cardPos ? `translate(${cardPos.x}px, ${cardPos.y}px)` : undefined }}
-                  className="absolute z-50 right-2 w-[330px] max-w-[calc(100%-1.5rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] flex flex-col max-h-[70vh] anim-pop"
+                  style={cardRect
+                    ? { left: cardRect.left, top: cardRect.top, width: cardRect.width, height: cardRect.height }
+                    : { top: tops[s.id] ?? s.anchor_top, right: 8, width: 340, height: 440 }}
+                  className="absolute z-50 max-w-[calc(100%-1rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] flex flex-col anim-pop"
                 >
                   <div onMouseDown={startDrag} className="flex items-center justify-between px-4 py-2.5 border-b border-stone-100 shrink-0 cursor-move select-none">
                     <span className="text-xs font-medium text-emerald-700">划线追问</span>
@@ -496,14 +574,14 @@ export default function LessonPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.02-2.09 2.201v.916" />
                         </svg>
                       </button>
-                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setOpenId(null); setCardPos(null); }} title="缩小到旁边" className="text-stone-300 hover:text-stone-600 transition-colors p-1">
+                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setOpenId(null); setCardRect(null); }} title="缩小到旁边" className="text-stone-300 hover:text-stone-600 transition-colors p-1">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
                         </svg>
                       </button>
                     </div>
                   </div>
-                  <div className="px-4 py-3 overflow-y-auto">
+                  <div className="px-4 py-3 overflow-y-auto flex-1 min-h-0">
                     <p className="text-[11px] text-stone-400 mb-3 leading-relaxed border-l-2 border-amber-200 pl-2">
                       {s.original_text.length > 120 ? s.original_text.slice(0, 120) + '...' : s.original_text}
                     </p>
@@ -519,11 +597,17 @@ export default function LessonPage() {
                           </div>
                         )
                       ))}
-                      {followSaving && (
-                        <div className="flex items-center gap-2 text-xs text-stone-400 pl-3">
-                          <span className="w-3 h-3 rounded-full border-2 border-stone-200 border-t-emerald-600 animate-spin" />
-                          AI 正在回答...
-                        </div>
+                      {streaming && openId === s.id && (
+                        streamText ? (
+                          <div className="prose prose-sm prose-stone max-w-none border-l-2 border-emerald-200 pl-3">
+                            <Markdown>{streamText}</Markdown>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 text-xs text-stone-400 pl-3">
+                            <span className="w-3 h-3 rounded-full border-2 border-stone-200 border-t-emerald-600 animate-spin" />
+                            AI 正在回答...
+                          </div>
+                        )
                       )}
                     </div>
                   </div>
@@ -538,12 +622,22 @@ export default function LessonPage() {
                     />
                     <button
                       onClick={() => handleFollowUp(s.id)}
-                      disabled={!followDraft.trim() || followSaving}
+                      disabled={!followDraft.trim() || streaming}
                       className="px-3 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 shrink-0 transition-all duration-200 cursor-pointer"
                     >
                       发送
                     </button>
                   </div>
+
+                  {/* Resize handles — drag any edge or corner */}
+                  <div onMouseDown={(e) => startResize('n', e)} className="absolute -top-1 left-3 right-3 h-2 cursor-ns-resize" />
+                  <div onMouseDown={(e) => startResize('s', e)} className="absolute -bottom-1 left-3 right-3 h-2 cursor-ns-resize" />
+                  <div onMouseDown={(e) => startResize('w', e)} className="absolute -left-1 top-3 bottom-3 w-2 cursor-ew-resize" />
+                  <div onMouseDown={(e) => startResize('e', e)} className="absolute -right-1 top-3 bottom-3 w-2 cursor-ew-resize" />
+                  <div onMouseDown={(e) => startResize('nw', e)} className="absolute -top-1 -left-1 w-3.5 h-3.5 cursor-nwse-resize" />
+                  <div onMouseDown={(e) => startResize('ne', e)} className="absolute -top-1 -right-1 w-3.5 h-3.5 cursor-nesw-resize" />
+                  <div onMouseDown={(e) => startResize('sw', e)} className="absolute -bottom-1 -left-1 w-3.5 h-3.5 cursor-nesw-resize" />
+                  <div onMouseDown={(e) => startResize('se', e)} className="absolute -bottom-1 -right-1 w-3.5 h-3.5 cursor-nwse-resize" />
                 </div>
               ) : null
             ))}

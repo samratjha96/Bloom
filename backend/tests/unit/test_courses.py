@@ -1,4 +1,15 @@
+import json
 from unittest.mock import patch, MagicMock
+
+
+def _sse_done(res):
+    """Extract the final `done` event payload from an SSE (text/event-stream) response."""
+    for line in res.text.splitlines():
+        if line.startswith("data: "):
+            data = json.loads(line[6:])
+            if data.get("done"):
+                return data
+    return None
 
 
 def _make_mock_response(content):
@@ -133,7 +144,7 @@ def test_source_course_txt_highlight_answer_and_next_lesson(client):
 
     with patch("app.courses.get_openai_client") as mock_get_client:
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = _make_mock_response("Alpha 是原文的中心主张。")
+        mock_client.chat.completions.create.return_value = _mock_stream(["Alpha 是原文", "的中心主张。"])
         mock_get_client.return_value = mock_client
 
         ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
@@ -145,7 +156,8 @@ def test_source_course_txt_highlight_answer_and_next_lesson(client):
         })
 
     assert ann.status_code == 200
-    assert "中心主张" in ann.json()["answer"]
+    done = _sse_done(ann)
+    assert done is not None and "中心主张" in done["annotation"]["answer"]
 
     generated = """# 从中心主张开始
 
@@ -189,7 +201,7 @@ def test_highlight_creates_session_with_thread(client):
 
     with patch("app.courses.get_openai_client") as mock_get_client:
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = _make_mock_response("这是对划线内容的即时回答。")
+        mock_client.chat.completions.create.return_value = _mock_stream(["这是对划线", "内容的即时回答。"])
         mock_get_client.return_value = mock_client
 
         ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
@@ -201,8 +213,8 @@ def test_highlight_creates_session_with_thread(client):
         })
 
     assert ann.status_code == 200
-    body = ann.json()
-    # Every highlight now produces an answered Q&A session
+    body = _sse_done(ann)["annotation"]
+    # Every highlight now produces an answered Q&A session (streamed back via SSE)
     assert "即时回答" in body["answer"]
     assert body["anchor_top"] == 320
     assert len(body["messages"]) == 2
@@ -217,18 +229,18 @@ def test_highlight_session_followup(client):
 
     with patch("app.courses.get_openai_client") as mock_get_client:
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = _make_mock_response("第一轮回答。")
+        mock_client.chat.completions.create.return_value = _mock_stream(["第一轮回答。"])
         mock_get_client.return_value = mock_client
-        ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+        ann_res = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
             "position_start": 0, "position_end": 4,
             "original_text": "正文内容", "comment": "第一个问题",
-        }).json()
+        })
 
-    aid = ann["id"]
+    aid = _sse_done(ann_res)["annotation"]["id"]
 
     with patch("app.courses.get_openai_client") as mock_get_client:
         mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = _make_mock_response("追问的回答。")
+        mock_client.chat.completions.create.return_value = _mock_stream(["追问的", "回答。"])
         mock_get_client.return_value = mock_client
         res = client.post(
             f"/api/courses/{cid}/lessons/1/annotations/{aid}/messages",
@@ -236,7 +248,7 @@ def test_highlight_session_followup(client):
         )
 
     assert res.status_code == 200
-    body = res.json()
+    body = _sse_done(res)["annotation"]
     assert len(body["messages"]) == 4
     assert body["messages"][2]["content"] == "那再追问一下呢？"
     assert "追问的回答" in body["messages"][3]["content"]

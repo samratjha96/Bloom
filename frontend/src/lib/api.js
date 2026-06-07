@@ -85,18 +85,46 @@ export async function getAnnotations(courseId, lessonNum) {
   return apiRequest(`/courses/${courseId}/lessons/${lessonNum}/annotations`);
 }
 
-export async function createAnnotation(courseId, lessonNum, data) {
-  return apiRequest(`/courses/${courseId}/lessons/${lessonNum}/annotations`, {
+// Shared SSE reader for POST endpoints that stream `data: {...}` lines.
+// Calls onChunk(text) per token and onDone(data) on the final event; throws on {error}.
+async function postSSE(path, body, onChunk, onDone) {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    body: JSON.stringify(data),
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
   });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `请求失败 (${res.status})`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue;
+      let data;
+      try { data = JSON.parse(line.slice(6)); } catch { continue; }
+      if (data.error) throw new Error(data.error);
+      if (data.content) onChunk(data.content);
+      if (data.done && onDone) onDone(data);
+    }
+  }
 }
 
-export async function addAnnotationMessage(courseId, lessonNum, annotationId, content) {
-  return apiRequest(`/courses/${courseId}/lessons/${lessonNum}/annotations/${annotationId}/messages`, {
-    method: 'POST',
-    body: JSON.stringify({ content }),
-  });
+// Create a highlight Q&A session; the answer streams via onChunk, final annotation via onDone.
+export async function createAnnotation(courseId, lessonNum, data, onChunk, onDone) {
+  return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations`, data, onChunk, onDone);
+}
+
+// Follow-up question in a session; the answer streams via onChunk, updated annotation via onDone.
+export async function addAnnotationMessage(courseId, lessonNum, annotationId, content, onChunk, onDone) {
+  return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations/${annotationId}/messages`, { content }, onChunk, onDone);
 }
 
 export async function deleteAnnotation(courseId, lessonNum, annotationId) {

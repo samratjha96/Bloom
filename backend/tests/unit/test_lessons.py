@@ -1,4 +1,15 @@
+import json
 from unittest.mock import patch, MagicMock
+
+
+def _sse_done(res):
+    """Extract the final `done` event payload from an SSE response."""
+    for line in res.text.splitlines():
+        if line.startswith("data: "):
+            data = json.loads(line[6:])
+            if data.get("done"):
+                return data
+    return None
 
 
 def _make_mock_response(content):
@@ -45,14 +56,18 @@ def _setup_course(client, syllabus_content=None):
 def test_create_annotation(client):
     course_id = _setup_course(client)
 
-    res = client.post(f"/api/courses/{course_id}/lessons/1/annotations", json={
-        "position_start": 10,
-        "position_end": 20,
-        "original_text": "正文",
-        "comment": "这里不太理解",
-    })
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_mock_stream(["这段的意思是……"])
+        mock_get_client.return_value = mock_client
+        res = client.post(f"/api/courses/{course_id}/lessons/1/annotations", json={
+            "position_start": 10,
+            "position_end": 20,
+            "original_text": "正文",
+            "comment": "这里不太理解",
+        })
     assert res.status_code == 200
-    data = res.json()
+    data = _sse_done(res)["annotation"]
     assert data["original_text"] == "正文"
     assert data["comment"] == "这里不太理解"
     assert data["position_start"] == 10
@@ -62,12 +77,18 @@ def test_create_annotation(client):
 def test_get_annotations(client):
     course_id = _setup_course(client)
 
-    client.post(f"/api/courses/{course_id}/lessons/1/annotations", json={
-        "position_start": 0, "position_end": 5, "original_text": "文本1", "comment": "???为什么",
-    })
-    client.post(f"/api/courses/{course_id}/lessons/1/annotations", json={
-        "position_start": 10, "position_end": 15, "original_text": "文本2", "comment": "???不懂",
-    })
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = [
+            _make_mock_stream(["回答1"]), _make_mock_stream(["回答2"]),
+        ]
+        mock_get_client.return_value = mock_client
+        client.post(f"/api/courses/{course_id}/lessons/1/annotations", json={
+            "position_start": 0, "position_end": 5, "original_text": "文本1", "comment": "???为什么",
+        })
+        client.post(f"/api/courses/{course_id}/lessons/1/annotations", json={
+            "position_start": 10, "position_end": 15, "original_text": "文本2", "comment": "???不懂",
+        })
 
     res = client.get(f"/api/courses/{course_id}/lessons/1/annotations")
     assert res.status_code == 200
