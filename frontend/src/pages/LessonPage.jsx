@@ -3,8 +3,54 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Markdown from '../components/Markdown';
 import {
   getLesson, getLessons, getAnnotations, createAnnotation, deleteAnnotation,
-  submitFeedback, generateNextLesson, getFeedback, recordLessonOpened,
+  addAnnotationMessage, submitFeedback, generateNextLesson, getFeedback, recordLessonOpened,
 } from '../lib/api';
+
+const HL_SUPPORTED = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
+
+// Character offset of (container, offset) within `root`'s plain text.
+const charOffset = (root, container, offset) => {
+  const r = document.createRange();
+  r.setStart(root, 0);
+  r.setEnd(container, offset);
+  return r.toString().length;
+};
+
+// Resolve a session's [start, end] offsets — prefer matching its original text
+// (robust to legacy rows that stored placeholder offsets), fall back to stored offsets.
+const locateOffsets = (root, session) => {
+  const text = session.original_text || '';
+  if (text) {
+    const plain = root.textContent || '';
+    let idx = plain.indexOf(text, Math.max(0, (session.position_start || 0) - 2));
+    if (idx === -1) idx = plain.indexOf(text);
+    if (idx !== -1) return [idx, idx + text.length];
+  }
+  if (session.position_end > session.position_start) return [session.position_start, session.position_end];
+  return null;
+};
+
+// Rebuild a DOM Range from plain-text [start, end] offsets within `root`.
+const rangeFromOffsets = (root, start, end) => {
+  if (start == null || end == null || end <= start) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let count = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0, n;
+  while ((n = walker.nextNode())) {
+    const len = n.textContent.length;
+    if (startNode === null && count + len > start) { startNode = n; startOffset = start - count; }
+    if (count + len >= end) { endNode = n; endOffset = end - count; break; }
+    count += len;
+  }
+  if (!startNode || !endNode) return null;
+  try {
+    const range = document.createRange();
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    return range;
+  } catch {
+    return null;
+  }
+};
 
 export default function LessonPage() {
   const { courseId, lessonNum } = useParams();
@@ -12,7 +58,7 @@ export default function LessonPage() {
 
   const [lesson, setLesson] = useState(null);
   const [allLessons, setAllLessons] = useState([]);
-  const [annotations, setAnnotations] = useState([]);
+  const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -21,16 +67,22 @@ export default function LessonPage() {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSaved, setFeedbackSaved] = useState(false);
 
-  const [showAnnotation, setShowAnnotation] = useState(false);
-  const [selectedText, setSelectedText] = useState('');
-  const [annotationComment, setAnnotationComment] = useState('');
-  const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 });
+  // Highlight Q&A sessions
+  const [marker, setMarker] = useState(null);       // { top, left, selectedText, start, end } | null — pre-ask icon
+  const [composer, setComposer] = useState(null);   // { top, selectedText, start, end, draft, saving } | null
+  const [openId, setOpenId] = useState(null);       // expanded session id | null
+  const [followDraft, setFollowDraft] = useState('');
+  const [followSaving, setFollowSaving] = useState(false);
+  const [tops, setTops] = useState({});             // session id -> px top within article (reflow-resilient)
+  const [cardPos, setCardPos] = useState(null);     // { x, y } drag translate for the active overlay
 
   const [generating, setGenerating] = useState(false);
   const [streamContent, setStreamContent] = useState('');
   const [showMobileNav, setShowMobileNav] = useState(false);
 
-  const contentRef = useRef(null);
+  const contentRef = useRef(null);   // <article>
+  const proseRef = useRef(null);     // markdown content only (excludes overlay)
+  const dragRef = useRef(null);
 
   useEffect(() => {
     setLoading(true);
@@ -40,6 +92,11 @@ export default function LessonPage() {
     setGenerating(false);
     setFeedbackContent('');
     setThoughtAnswers('');
+    setMarker(null);
+    setComposer(null);
+    setOpenId(null);
+    setFollowDraft('');
+    setCardPos(null);
 
     Promise.all([
       getLesson(courseId, lessonNum),
@@ -49,7 +106,7 @@ export default function LessonPage() {
     ])
       .then(([l, a, all, fb]) => {
         setLesson(l);
-        setAnnotations(a);
+        setSessions(a);
         setAllLessons(all.filter((x) => x.number > 0));
         if (fb.exists) {
           setFeedbackContent(fb.content || '');
@@ -65,47 +122,150 @@ export default function LessonPage() {
     window.scrollTo(0, 0);
   }, [courseId, lessonNum]);
 
-  const handleDeleteAnnotation = async (annId) => {
-    try {
-      await deleteAnnotation(courseId, lessonNum, annId);
-      setAnnotations((prev) => prev.filter((a) => a.id !== annId));
-    } catch (err) {
-      setError(err.message);
-    }
+  // Paint yellow highlights for saved sessions + recompute reflow-resilient dot positions.
+  useEffect(() => {
+    const article = contentRef.current;
+    const prose = proseRef.current;
+    if (!article || !prose) return;
+
+    const compute = () => {
+      const articleTop = article.getBoundingClientRect().top;
+      const ranges = [];
+      const nextTops = {};
+      for (const s of sessions) {
+        const off = locateOffsets(prose, s);
+        const range = off ? rangeFromOffsets(prose, off[0], off[1]) : null;
+        if (range) {
+          ranges.push(range);
+          nextTops[s.id] = Math.max(0, Math.round(range.getBoundingClientRect().top - articleTop));
+        } else {
+          nextTops[s.id] = s.anchor_top || 0;
+        }
+      }
+      setTops(nextTops);
+      if (HL_SUPPORTED) {
+        if (ranges.length) CSS.highlights.set('bloom-ann', new Highlight(...ranges));
+        else CSS.highlights.delete('bloom-ann');
+      }
+    };
+
+    compute();
+    window.addEventListener('resize', compute);
+    return () => {
+      window.removeEventListener('resize', compute);
+      if (HL_SUPPORTED) CSS.highlights.delete('bloom-ann');
+    };
+  }, [sessions, lesson?.content]);
+
+  // Paint a distinct highlight for the pending (being-asked) selection.
+  useEffect(() => {
+    if (!HL_SUPPORTED || !proseRef.current) return;
+    const sel = composer || marker;
+    const range = sel ? rangeFromOffsets(proseRef.current, sel.start, sel.end) : null;
+    if (range) CSS.highlights.set('bloom-pending', new Highlight(range));
+    else CSS.highlights.delete('bloom-pending');
+    return () => { if (HL_SUPPORTED) CSS.highlights.delete('bloom-pending'); };
+  }, [marker, composer, lesson?.content]);
+
+  const openSession = (id) => {
+    setMarker(null);
+    setComposer(null);
+    setFollowDraft('');
+    setCardPos(null);
+    setOpenId(id);
+  };
+
+  const openComposerFromMarker = () => {
+    if (!marker) return;
+    setOpenId(null);
+    setCardPos(null);
+    setComposer({ ...marker, draft: '', saving: false });
+    setMarker(null);
+  };
+
+  // Drag the active overlay (composer or expanded session) by its header.
+  const startDrag = (e) => {
+    e.preventDefault();
+    dragRef.current = { sx: e.clientX, sy: e.clientY, bx: cardPos?.x || 0, by: cardPos?.y || 0 };
+    const move = (ev) => {
+      const d = dragRef.current;
+      if (!d) return;
+      setCardPos({ x: d.bx + ev.clientX - d.sx, y: d.by + ev.clientY - d.sy });
+    };
+    const up = () => {
+      dragRef.current = null;
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
   };
 
   const handleTextSelect = () => {
     try {
-      const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
-      const text = sel.toString().trim();
-      if (!text) return;
-      // 用选区的公共祖先节点判断是否落在课文区，而非只看 anchorNode（更稳健、跨浏览器一致）
-      const node = sel.getRangeAt(0).commonAncestorContainer;
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) { setMarker(null); return; }
+      const text = selection.toString().trim();
+      const range = selection.getRangeAt(0);
+      // 用选区公共祖先判断是否落在课文区（跨浏览器更稳健）
+      const node = range.commonAncestorContainer;
       const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentNode;
-      if (!contentRef.current?.contains(el)) return;
-      setSelectedText(text);
-      setSelectionRange({ start: 0, end: text.length });
-      setShowAnnotation(true);
-      setAnnotationComment('');
+      if (!text || !proseRef.current?.contains(el)) { setMarker(null); return; }
+      const rect = range.getBoundingClientRect();
+      const articleRect = contentRef.current.getBoundingClientRect();
+      const top = Math.max(0, Math.round(rect.top - articleRect.top));
+      const left = Math.max(8, Math.min(Math.round(rect.right - articleRect.left), Math.round(articleRect.width - 72)));
+      const start = charOffset(proseRef.current, range.startContainer, range.startOffset);
+      const end = start + text.length;
+      setMarker({ top, left, selectedText: text, start, end });
     } catch (e) {
       console.error('handleTextSelect failed', e);
     }
   };
 
-  const handleSaveAnnotation = async () => {
-    if (!annotationComment.trim()) return;
+  const handleCreateSession = async () => {
+    if (!composer?.draft.trim()) return;
+    setComposer((c) => ({ ...c, saving: true }));
+    setError('');
     try {
       const ann = await createAnnotation(courseId, lessonNum, {
-        position_start: selectionRange.start,
-        position_end: selectionRange.end,
-        original_text: selectedText,
-        comment: annotationComment.trim(),
+        position_start: composer.start ?? 0,
+        position_end: composer.end ?? composer.selectedText.length,
+        original_text: composer.selectedText,
+        comment: composer.draft.trim(),
+        answer_immediately: true,
+        anchor_top: composer.top,
       });
-      setAnnotations((prev) => [...prev, ann]);
-      setShowAnnotation(false);
-      setAnnotationComment('');
-      setSelectedText('');
+      setSessions((prev) => [...prev, ann]);
+      setComposer(null);
+      setCardPos(null);
+      setOpenId(ann.id);
+    } catch (err) {
+      setError(err.message);
+      setComposer((c) => (c ? { ...c, saving: false } : c));
+    }
+  };
+
+  const handleFollowUp = async (sessionId) => {
+    if (!followDraft.trim()) return;
+    setFollowSaving(true);
+    setError('');
+    try {
+      const updated = await addAnnotationMessage(courseId, lessonNum, sessionId, followDraft.trim());
+      setSessions((prev) => prev.map((s) => (s.id === sessionId ? updated : s)));
+      setFollowDraft('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setFollowSaving(false);
+    }
+  };
+
+  const handleDeleteSession = async (id) => {
+    try {
+      await deleteAnnotation(courseId, lessonNum, id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      if (openId === id) setOpenId(null);
     } catch (err) {
       setError(err.message);
     }
@@ -151,6 +311,7 @@ export default function LessonPage() {
   };
 
   const currentNum = parseInt(lessonNum, 10);
+  const isSourceLesson = Boolean(lesson?.is_source);
 
   if (loading) {
     return (
@@ -240,42 +401,153 @@ export default function LessonPage() {
           <article
             ref={contentRef}
             onMouseUp={handleTextSelect}
-            className="bg-white rounded-2xl border border-stone-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-8 md:p-10 mb-8"
+            className="relative bg-white rounded-2xl border border-stone-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-8 md:p-10 mb-8"
           >
-            <div className="prose prose-stone prose-lg max-w-none">
+            <div ref={proseRef} className="prose prose-stone prose-lg max-w-none">
               <Markdown>{lesson?.content}</Markdown>
             </div>
-          </article>
 
-          {/* Annotations */}
-          {annotations.length > 0 && (
-            <div className="bg-amber-50/50 rounded-xl border border-amber-200/40 p-5 mb-8">
-              <h3 className="text-xs font-medium text-amber-700 uppercase tracking-wide mb-3">我的批注</h3>
-              <div className="space-y-2">
-                {annotations.map((ann) => (
-                  <div key={ann.id} className="bg-white rounded-lg p-3 border border-amber-100/60 group/ann">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-stone-400 mb-1 leading-relaxed">
-                          原文：{ann.original_text.length > 80 ? ann.original_text.slice(0, 80) + '...' : ann.original_text}
-                        </p>
-                        <p className="text-sm text-stone-700">{ann.comment}</p>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteAnnotation(ann.id)}
-                        className="opacity-0 group-hover/ann:opacity-100 text-stone-300 hover:text-rose-500 transition-all shrink-0 p-1"
-                        title="删除批注"
-                      >
+            {/* After selecting text → a small icon appears; click it to open the question box */}
+            {marker && (
+              <button
+                onMouseUp={(e) => e.stopPropagation()}
+                onClick={openComposerFromMarker}
+                title="向 AI 提问"
+                style={{ top: Math.max(0, marker.top - 30), left: marker.left }}
+                className="absolute z-40 flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full bg-amber-400 text-stone-900 text-[11px] font-medium shadow-[0_4px_12px_-2px_rgba(180,120,0,0.4)] hover:bg-amber-300 hover:-translate-y-0.5 transition-all anim-pop cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.019z" />
+                </svg>
+                提问
+              </button>
+            )}
+
+            {/* Minimized session dots — line into the margin + a clickable dot */}
+            {sessions.map((s) => (
+              openId === s.id ? null : (
+                <button
+                  key={`dot-${s.id}`}
+                  onClick={() => openSession(s.id)}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  title={s.comment}
+                  className="absolute z-20 flex items-center group/dot"
+                  style={{ top: Math.max(0, (tops[s.id] ?? s.anchor_top) - 6), right: 6 }}
+                >
+                  <span className="w-5 h-px bg-amber-300 mr-1 group-hover/dot:bg-amber-400 transition-colors" />
+                  <span className="w-3 h-3 rounded-full bg-emerald-500 ring-4 ring-emerald-100/70 group-hover/dot:scale-125 transition-transform" />
+                </button>
+              )
+            ))}
+
+            {/* New-session composer (draggable) */}
+            {composer && (
+              <div
+                onMouseUp={(e) => e.stopPropagation()}
+                style={{ top: composer.top, transform: cardPos ? `translate(${cardPos.x}px, ${cardPos.y}px)` : undefined }}
+                className="absolute z-50 right-2 w-[330px] max-w-[calc(100%-1.5rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] p-4 anim-pop"
+              >
+                <div onMouseDown={startDrag} className="flex items-center justify-between mb-2 cursor-move select-none">
+                  <span className="text-xs font-medium text-emerald-700">划线提问</span>
+                  <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setComposer(null); setCardPos(null); }} className="text-stone-300 hover:text-stone-500 transition-colors p-0.5">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <p className="text-[11px] text-stone-400 mb-2.5 leading-relaxed border-l-2 border-amber-300 pl-2">
+                  {composer.selectedText.length > 90 ? composer.selectedText.slice(0, 90) + '...' : composer.selectedText}
+                </p>
+                <textarea
+                  value={composer.draft}
+                  onChange={(e) => setComposer((c) => ({ ...c, draft: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreateSession(); }}
+                  placeholder="针对这段话提一个问题..."
+                  autoFocus
+                  className="w-full border border-stone-200 rounded-lg p-2.5 text-sm resize-none h-20 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
+                />
+                <div className="flex justify-end gap-2 mt-2">
+                  <button onClick={() => { setComposer(null); setCardPos(null); }} className="px-3 py-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors">取消</button>
+                  <button
+                    onClick={handleCreateSession}
+                    disabled={!composer.draft.trim() || composer.saving}
+                    className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-all duration-200 cursor-pointer"
+                  >
+                    {composer.saving ? '回答中...' : '提问'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Expanded session — multi-turn Q&A (draggable) */}
+            {sessions.map((s) => (
+              openId === s.id ? (
+                <div
+                  key={`open-${s.id}`}
+                  onMouseUp={(e) => e.stopPropagation()}
+                  style={{ top: tops[s.id] ?? s.anchor_top, transform: cardPos ? `translate(${cardPos.x}px, ${cardPos.y}px)` : undefined }}
+                  className="absolute z-50 right-2 w-[330px] max-w-[calc(100%-1.5rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] flex flex-col max-h-[70vh] anim-pop"
+                >
+                  <div onMouseDown={startDrag} className="flex items-center justify-between px-4 py-2.5 border-b border-stone-100 shrink-0 cursor-move select-none">
+                    <span className="text-xs font-medium text-emerald-700">划线追问</span>
+                    <div className="flex items-center gap-0.5">
+                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleDeleteSession(s.id)} title="删除这条提问" className="text-stone-300 hover:text-rose-500 transition-colors p-1">
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.02-2.09 2.201v.916" />
+                        </svg>
+                      </button>
+                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setOpenId(null); setCardPos(null); }} title="缩小到旁边" className="text-stone-300 hover:text-stone-600 transition-colors p-1">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
                         </svg>
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="px-4 py-3 overflow-y-auto">
+                    <p className="text-[11px] text-stone-400 mb-3 leading-relaxed border-l-2 border-amber-200 pl-2">
+                      {s.original_text.length > 120 ? s.original_text.slice(0, 120) + '...' : s.original_text}
+                    </p>
+                    <div className="space-y-3">
+                      {s.messages.map((m, i) => (
+                        m.role === 'user' ? (
+                          <div key={i} className="flex justify-end">
+                            <div className="bg-stone-100 text-stone-700 text-sm rounded-2xl rounded-br-sm px-3 py-2 max-w-[88%] whitespace-pre-wrap">{m.content}</div>
+                          </div>
+                        ) : (
+                          <div key={i} className="prose prose-sm prose-stone max-w-none border-l-2 border-emerald-200 pl-3">
+                            <Markdown>{m.content}</Markdown>
+                          </div>
+                        )
+                      ))}
+                      {followSaving && (
+                        <div className="flex items-center gap-2 text-xs text-stone-400 pl-3">
+                          <span className="w-3 h-3 rounded-full border-2 border-stone-200 border-t-emerald-600 animate-spin" />
+                          AI 正在回答...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="px-3 py-2.5 border-t border-stone-100 flex items-end gap-2 shrink-0">
+                    <textarea
+                      value={followDraft}
+                      onChange={(e) => setFollowDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFollowUp(s.id); } }}
+                      placeholder="继续追问..."
+                      rows={1}
+                      className="flex-1 min-w-0 border border-stone-200 rounded-lg px-3 py-2 text-sm resize-none transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none max-h-24"
+                    />
+                    <button
+                      onClick={() => handleFollowUp(s.id)}
+                      disabled={!followDraft.trim() || followSaving}
+                      className="px-3 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 shrink-0 transition-all duration-200 cursor-pointer"
+                    >
+                      发送
+                    </button>
+                  </div>
+                </div>
+              ) : null
+            ))}
+          </article>
 
           {/* Feedback section */}
           <div className="bg-white rounded-2xl border border-stone-200/60 p-6 md:p-8 mb-8">
@@ -289,17 +561,19 @@ export default function LessonPage() {
               placeholder="在这里写下你的反馈..."
               className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-32 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none mb-4"
             />
-            <details className="mb-4">
-              <summary className="text-xs text-stone-400 cursor-pointer hover:text-stone-600 transition-colors select-none">
-                思考题回答（可选）
-              </summary>
-              <textarea
-                value={thoughtAnswers}
-                onChange={(e) => { setThoughtAnswers(e.target.value); setFeedbackSaved(false); }}
-                placeholder="在这里写下你对思考题的回答..."
-                className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-24 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none mt-3"
-              />
-            </details>
+            {!isSourceLesson && (
+              <details className="mb-4">
+                <summary className="text-xs text-stone-400 cursor-pointer hover:text-stone-600 transition-colors select-none">
+                  思考题回答（可选）
+                </summary>
+                <textarea
+                  value={thoughtAnswers}
+                  onChange={(e) => { setThoughtAnswers(e.target.value); setFeedbackSaved(false); }}
+                  placeholder="在这里写下你对思考题的回答..."
+                  className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-24 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none mt-3"
+                />
+              </details>
+            )}
             <div className="flex items-center gap-3">
               <button
                 onClick={handleSubmitFeedback}
@@ -347,12 +621,12 @@ export default function LessonPage() {
               onClick={handleReadDone}
               className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 transition-all duration-200 cursor-pointer"
             >
-              我读完了 — 生成下一篇
+              {isSourceLesson ? '我读完原文了 — 生成下一篇' : '我读完了 — 生成下一篇'}
             </button>
           )}
 
           <p className="text-xs text-stone-300 text-center mt-4">
-            提示：选中课文中的文字可以添加行内批注
+            提示：选中文字后点冒出的「提问」图标向 AI 发问（划线处会标黄）；窗口可拖动，缩小后点右侧小圆点重新打开
           </p>
         </main>
 
@@ -405,6 +679,11 @@ export default function LessonPage() {
                         <span className="truncate">
                           {l.title || `第 ${String(l.number).padStart(2, '0')} 篇`}
                         </span>
+                        {l.is_source && (
+                          <span className={`text-[10px] ml-auto shrink-0 ${isActive ? 'text-amber-300' : 'text-amber-500'}`}>
+                            原文
+                          </span>
+                        )}
                         {l.is_evaluation && (
                           <span className={`text-[10px] ml-auto shrink-0 ${isActive ? 'text-amber-300' : 'text-amber-500'}`}>
                             评估
@@ -420,10 +699,10 @@ export default function LessonPage() {
               </nav>
 
               <div className="mt-6 pt-6 border-t border-stone-100 space-y-2">
-                {annotations.length > 0 && (
+                {sessions.length > 0 && (
                   <div className="px-3 py-1">
                     <span className="text-[10px] text-stone-300">
-                      {annotations.length} 条批注
+                      {sessions.length} 个划线提问
                     </span>
                   </div>
                 )}
@@ -435,40 +714,6 @@ export default function LessonPage() {
           )}
         </aside>
       </div>
-
-      {/* Annotation popup */}
-      {showAnnotation && (
-        <div className="fixed inset-0 bg-stone-950/25 modal-backdrop flex items-center justify-center z-50 p-6">
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-[0_20px_40px_-15px_rgba(0,0,0,0.1)] border border-stone-200/40">
-            <h3 className="font-medium text-stone-800 text-sm mb-3">添加批注</h3>
-            <p className="text-xs text-stone-400 mb-4 leading-relaxed">
-              选中文本：{selectedText.length > 100 ? selectedText.slice(0, 100) + '...' : selectedText}
-            </p>
-            <textarea
-              value={annotationComment}
-              onChange={(e) => setAnnotationComment(e.target.value)}
-              placeholder="写下你的困惑或想法..."
-              className="w-full border border-stone-200 rounded-lg p-3 text-sm resize-none h-24 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => { setShowAnnotation(false); setSelectedText(''); }}
-                className="px-3 py-1.5 text-sm text-stone-500 hover:text-stone-700 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSaveAnnotation}
-                disabled={!annotationComment.trim()}
-                className="px-4 py-1.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-all duration-200 cursor-pointer"
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -13,11 +13,15 @@ class Course(Base):
     __tablename__ = "courses"
     __table_args__ = (
         CheckConstraint("status IN ('learning', 'completed')", name="ck_course_status"),
+        CheckConstraint("mode IN ('topic', 'source')", name="ck_course_mode"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
+    mode = Column(String, default="topic", nullable=False)
     status = Column(String, default="learning")
+    source_filename = Column(String, nullable=True)
+    source_content = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
 
     syllabus = relationship("Syllabus", back_populates="course", uselist=False, cascade="all, delete-orphan")
@@ -47,6 +51,7 @@ class Lesson(Base):
     number = Column(Integer, nullable=False)
     content = Column(Text, nullable=False)
     is_evaluation = Column(Boolean, default=False)
+    is_source = Column(Boolean, default=False)
     created_at = Column(DateTime, default=_utcnow)
 
     course = relationship("Course", back_populates="lessons")
@@ -66,6 +71,9 @@ class Annotation(Base):
     position_end = Column(Integer, nullable=False)
     original_text = Column(Text, nullable=False)
     comment = Column(Text, nullable=False)
+    answer = Column(Text, default="")
+    messages = Column(Text, default="")  # JSON: [{"role": "user"|"assistant", "content": str}]
+    anchor_top = Column(Integer, default=0)  # vertical offset (px) within the article, for margin dot
     created_at = Column(DateTime, default=_utcnow)
 
     lesson = relationship("Lesson", back_populates="annotations")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCourses, createCourse, deleteCourse, getGlobalStats } from '../lib/api';
+import { getCourses, createCourse, createSourceCourse, deleteCourse, getGlobalStats } from '../lib/api';
 
 // 创建是阻塞式的（串行两次 LLM），前端拿不到真实进度，用阶段文案 + 伪进度营造前进感
 const LOADING_MESSAGES = [
@@ -15,6 +15,8 @@ export default function DashboardPage() {
   const [stats, setStats] = useState(null);
   const [newCourseName, setNewCourseName] = useState('');
   const [newCourseRef, setNewCourseRef] = useState('');
+  const [createMode, setCreateMode] = useState('topic');
+  const [sourceFile, setSourceFile] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -44,14 +46,23 @@ export default function DashboardPage() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!newCourseName.trim() || creating) return;
+    if (creating) return;
+    if (createMode === 'topic' && !newCourseName.trim()) return;
+    if (createMode === 'source' && !sourceFile) {
+      setError('请先选择 PDF、TXT 或 MD 文件');
+      return;
+    }
     setError('');
     setCreating(true);
     try {
-      const course = await createCourse(newCourseName.trim(), newCourseRef.trim());
+      const sourceName = sourceFile?.name?.replace(/\.[^.]+$/, '') || '';
+      const course = createMode === 'source'
+        ? await createSourceCourse(newCourseName.trim() || sourceName, sourceFile)
+        : await createCourse(newCourseName.trim(), newCourseRef.trim());
       setCourses([course, ...courses]);
       setNewCourseName('');
       setNewCourseRef('');
+      setSourceFile(null);
       setShowCreate(false);
       navigate(`/course/${course.id}`);
     } catch (err) {
@@ -150,39 +161,86 @@ export default function DashboardPage() {
         {/* Create form */}
         {showCreate && (
           <form onSubmit={handleCreate} className="mb-8 bg-white rounded-xl border border-stone-200/60 p-5 space-y-4">
+            <div className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-1">
+              <button
+                type="button"
+                onClick={() => setCreateMode('topic')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  createMode === 'topic'
+                    ? 'bg-white text-stone-900 shadow-sm'
+                    : 'text-stone-500 hover:text-stone-700'
+                }`}
+              >
+                主题生成
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreateMode('source')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  createMode === 'source'
+                    ? 'bg-white text-stone-900 shadow-sm'
+                    : 'text-stone-500 hover:text-stone-700'
+                }`}
+              >
+                上传原文
+              </button>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1.5">课题名称</label>
               <input
                 type="text"
                 value={newCourseName}
                 onChange={(e) => setNewCourseName(e.target.value)}
-                placeholder="例如「博弈论基础」「Python 装饰器」"
+                placeholder={createMode === 'source' ? '可留空，默认使用文件名' : '例如「博弈论基础」「Python 装饰器」'}
                 className="w-full px-3.5 py-2.5 bg-white border border-stone-200 rounded-lg text-sm transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
                 autoFocus
                 disabled={creating}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-stone-700 mb-1.5">
-                参考材料
-                <span className="text-stone-400 font-normal ml-1">（可选）</span>
-              </label>
-              <textarea
-                value={newCourseRef}
-                onChange={(e) => setNewCourseRef(e.target.value)}
-                placeholder="粘贴课本章节、论文摘要、笔记、或任何你希望 AI 参考的内容..."
-                className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-28 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
-                disabled={creating}
-              />
-              <p className="text-xs text-stone-400 mt-1">AI 会根据这些材料设计课程大纲和课文内容</p>
-            </div>
+
+            {createMode === 'topic' ? (
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1.5">
+                  参考材料
+                  <span className="text-stone-400 font-normal ml-1">（可选）</span>
+                </label>
+                <textarea
+                  value={newCourseRef}
+                  onChange={(e) => setNewCourseRef(e.target.value)}
+                  placeholder="粘贴课本章节、论文摘要、笔记、或任何你希望 AI 参考的内容..."
+                  className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-28 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
+                  disabled={creating}
+                />
+                <p className="text-xs text-stone-400 mt-1">AI 会根据这些材料设计课程大纲和课文内容</p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1.5">PDF / TXT / MD 原文</label>
+                <label className="flex items-center justify-between gap-3 border border-dashed border-stone-300 rounded-lg px-3.5 py-3 bg-stone-50/70 hover:bg-stone-50 transition-colors cursor-pointer">
+                  <span className="text-sm text-stone-500 truncate">
+                    {sourceFile ? sourceFile.name : '选择一个 PDF、TXT 或 MD 文件'}
+                  </span>
+                  <span className="text-xs text-emerald-600 font-medium shrink-0">选择文件</span>
+                  <input
+                    type="file"
+                    accept=".pdf,.txt,.md,.markdown,application/pdf,text/plain,text/markdown,text/x-markdown"
+                    className="hidden"
+                    disabled={creating}
+                    onChange={(e) => setSourceFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <p className="text-xs text-stone-400 mt-1">创建后先阅读原文，划线提问会立即回答；读完后再生成下一篇</p>
+              </div>
+            )}
+
             <div className="flex justify-end">
               <button
                 type="submit"
                 disabled={creating}
                 className="bg-stone-900 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-stone-800 disabled:opacity-50 transition-all duration-200 cursor-pointer"
               >
-                {creating ? '创建中...' : '创建课程'}
+                {creating ? '创建中...' : createMode === 'source' ? '上传并创建' : '创建课程'}
               </button>
             </div>
           </form>
@@ -224,9 +282,16 @@ export default function DashboardPage() {
                 onClick={() => navigate(`/course/${course.id}`)}
               >
                 <div className="flex items-center justify-between">
-                  <h3 className="font-medium text-stone-800 group-hover:text-stone-900 transition-colors">
-                    {course.name}
-                  </h3>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="font-medium text-stone-800 group-hover:text-stone-900 transition-colors truncate">
+                      {course.name}
+                    </h3>
+                    {course.mode === 'source' && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
+                        原文
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-3">
                     {course.status === 'completed' ? (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100">

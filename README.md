@@ -82,7 +82,7 @@ cd backend && uv sync && uv run uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173. Click **New Course**, enter a topic (optionally paste reference material), and start learning.
+Open http://localhost:5173. Click **New Course**, choose **Topic** or **Source Upload**, and start learning.
 
 ### Docker
 
@@ -95,25 +95,40 @@ docker compose up -d   # visit http://localhost:3000
 
 ## How It Works
 
+### Topic Mode
+
 ```
 Create course → AI generates syllabus + lesson 01
                         ↓
-        Read lesson → highlight text → add ??? annotations
+        Read lesson → highlight text → add annotations
                         ↓
         Write feedback → answer thought questions
                         ↓
         Click "Done Reading" → AI generates next lesson
-        (includes: review of your answers + ??? responses + new content)
+        (answer review + annotation responses + new content)
                         ↓
         Repeat until all mastery items checked ✅
                         ↓
         Auto-generate evaluation → then summary
 ```
 
+### Source Mode
+
+```
+Upload PDF / TXT / MD → AI generates syllabus + source-reading chapter
+                          ↓
+       Read source → highlight text → ask and get an immediate answer
+                          ↓
+       Click "Done Reading" → AI reads the full source + Q&A, then generates the next lesson
+                          ↓
+       Continue with the normal adaptive lesson flow
+```
+
 ## Features
 
-- **Reference material** — paste textbook chapters, papers, or notes when creating a course; AI uses them to shape the curriculum
-- **Inline annotations** — select any text and add `???` confusion markers
+- **Two course modes** — generate from a topic, or upload a PDF/TXT/MD source
+- **Reference material** — paste textbook chapters, papers, or notes when creating a topic course
+- **Highlight Q&A sessions** — select any text in any lesson (or source) and a small icon pops up; click it to ask. The highlighted text stays marked in yellow, the AI answers instantly, and you can keep asking follow-ups in the same thread. The window is draggable and collapses into a margin dot you can reopen anytime. Each session sees the full lesson + the highlighted span + its own conversation, and your questions still feed the next lesson.
 - **Adaptive lessons** — each lesson addresses your specific gaps from the previous one
 - **Chapter sidebar** — quick-jump between lessons while reading
 - **Collapsible syllabus** — track mastery progress without clutter

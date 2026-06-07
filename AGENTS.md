@@ -1,6 +1,6 @@
 # Interactive Learning System
 
-<p align="right"><a href="./CLAUDE.zh.md">简体中文</a></p>
+<p align="right"><a href="./Codex.zh.md">简体中文</a></p>
 
 ## Language Requirement
 
@@ -416,7 +416,7 @@ While reading a document, if the user considers a knowledge point, insight, or a
 
 ```
 Bloom-one-vs-one-study/
-├── CLAUDE.md                    # This file — system rules
+├── AGENTS.md                    # This file — system rules
 ├── learning-log.jsonl           # Learning log (auto-appended, don't modify manually)
 ├── Wittgenstein-Tractatus/      # Topic: Wittgenstein's Tractatus
 │   ├── syllabus.md              # Course syllabus (generated first, defines learning goals)

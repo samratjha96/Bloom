@@ -95,6 +95,29 @@ button:active:not(:disabled) {
   -webkit-backdrop-filter: blur(8px);
 }
 
+/* Highlight Q&A session card pop-in */
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.anim-pop {
+  animation: popIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top right;
+}
+
+/* Yellow marker under text that has a saved highlight Q&A session */
+::highlight(bloom-ann) {
+  background-color: rgba(252, 211, 77, 0.35);
+  text-decoration: underline;
+  text-decoration-color: rgba(217, 119, 6, 0.85);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+/* The selection currently being asked about */
+::highlight(bloom-pending) {
+  background-color: rgba(252, 211, 77, 0.55);
+}
+
 /* Focus ring */
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid var(--accent);

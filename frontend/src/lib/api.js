@@ -34,6 +34,24 @@ export async function createCourse(name, reference = '') {
   });
 }
 
+export async function createSourceCourse(name, file) {
+  const formData = new FormData();
+  formData.append('name', name);
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE}/courses/from-source`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `请求失败 (${res.status})`);
+  }
+
+  return res.json();
+}
+
 export async function deleteCourse(courseId) {
   return apiRequest(`/courses/${courseId}`, { method: 'DELETE' });
 }
@@ -71,6 +89,13 @@ export async function createAnnotation(courseId, lessonNum, data) {
   return apiRequest(`/courses/${courseId}/lessons/${lessonNum}/annotations`, {
     method: 'POST',
     body: JSON.stringify(data),
+  });
+}
+
+export async function addAnnotationMessage(courseId, lessonNum, annotationId, content) {
+  return apiRequest(`/courses/${courseId}/lessons/${lessonNum}/annotations/${annotationId}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
   });
 }
 

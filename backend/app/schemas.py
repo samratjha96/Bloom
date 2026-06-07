@@ -8,13 +8,29 @@ class CreateCourseRequest(BaseModel):
     reference: str = Field("", max_length=50000)  # optional reference material
 
 
+class CreateSourceCourseResponse(BaseModel):
+    id: int
+    name: str
+    mode: str
+    status: str
+    created_at: datetime
+    lesson_count: int = 0
+    syllabus_content: str | None = None
+    mastery_progress: float = 0.0
+    source_filename: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class CourseResponse(BaseModel):
     id: int
     name: str
+    mode: str = "topic"
     status: str
     created_at: datetime
     lesson_count: int = 0
     mastery_progress: float = 0.0
+    source_filename: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -22,11 +38,13 @@ class CourseResponse(BaseModel):
 class CourseDetailResponse(BaseModel):
     id: int
     name: str
+    mode: str = "topic"
     status: str
     created_at: datetime
     lesson_count: int = 0
     syllabus_content: str | None = None
     mastery_progress: float = 0.0  # 0.0 to 1.0
+    source_filename: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -50,6 +68,7 @@ class LessonListItem(BaseModel):
     id: int
     number: int
     is_evaluation: bool
+    is_source: bool = False
     title: str = ""
     has_feedback: bool = False
     created_at: datetime
@@ -63,17 +82,25 @@ class LessonResponse(BaseModel):
     number: int
     content: str
     is_evaluation: bool
+    is_source: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
 # Annotation
+class AnnotationMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
 class CreateAnnotationRequest(BaseModel):
     position_start: int = Field(..., ge=0)
     position_end: int = Field(..., ge=0)
     original_text: str = Field(..., min_length=1, max_length=5000)
     comment: str = Field(..., min_length=1, max_length=5000)
+    answer_immediately: bool = False
+    anchor_top: int = Field(0, ge=0)
 
     @field_validator("position_end")
     @classmethod
@@ -83,6 +110,10 @@ class CreateAnnotationRequest(BaseModel):
         return v
 
 
+class AddAnnotationMessageRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=5000)
+
+
 class AnnotationResponse(BaseModel):
     id: int
     lesson_id: int
@@ -90,6 +121,9 @@ class AnnotationResponse(BaseModel):
     position_end: int
     original_text: str
     comment: str
+    answer: str = ""
+    messages: list[AnnotationMessage] = []
+    anchor_top: int = 0
     created_at: datetime
 
     model_config = {"from_attributes": True}

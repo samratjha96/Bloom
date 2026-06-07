@@ -8,6 +8,20 @@ def _make_mock_response(content):
     return response
 
 
+def _mock_stream(chunks):
+    result = []
+    for text in chunks:
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = text
+        result.append(chunk)
+    end = MagicMock()
+    end.choices = [MagicMock()]
+    end.choices[0].delta.content = None
+    result.append(end)
+    return iter(result)
+
+
 def _mock_create_course(client, name="博弈论基础"):
     syllabus_resp = _make_mock_response("# 测试课程 · 课程大纲\n\n## 核心掌握项\n\n### 模块一\n- [ ] 能够解释基本概念\n- [ ] 能够应用核心定理")
     lesson_resp = _make_mock_response("# 第一章\n\n正文内容\n\n## 思考题\n\n1. 问题一\n2. 问题二")
@@ -88,3 +102,179 @@ def test_get_lesson_nonexistent(client):
     data = _mock_create_course(client)
     res = client.get(f"/api/courses/{data['id']}/lessons/99")
     assert res.status_code == 404
+
+
+def test_source_course_txt_highlight_answer_and_next_lesson(client):
+    syllabus_resp = _make_mock_response(
+        "# 原文学习 · 课程大纲\n\n## 核心掌握项\n\n### 材料主线\n- [ ] 能够解释原文的中心论证\n- [ ] 能够判断原文论证的关键前提"
+    )
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = syllabus_resp
+        mock_get_client.return_value = mock_client
+
+        res = client.post(
+            "/api/courses/from-source",
+            data={"name": "原文学习"},
+            files={"file": ("source.txt", b"Alpha is the central claim.\nBeta is the premise.", "text/plain")},
+        )
+
+    assert res.status_code == 200
+    course = res.json()
+    cid = course["id"]
+    assert course["mode"] == "source"
+    assert course["source_filename"] == "source.txt"
+    assert course["lesson_count"] == 1
+
+    lesson = client.get(f"/api/courses/{cid}/lessons/1").json()
+    assert lesson["is_source"] is True
+    assert "Alpha is the central claim" in lesson["content"]
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_mock_response("Alpha 是原文的中心主张。")
+        mock_get_client.return_value = mock_client
+
+        ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 0,
+            "position_end": 5,
+            "original_text": "Alpha",
+            "comment": "这里是什么意思？",
+            "answer_immediately": True,
+        })
+
+    assert ann.status_code == 200
+    assert "中心主张" in ann.json()["answer"]
+
+    generated = """# 从中心主张开始
+
+## 划线问题复盘
+
+你问的是 Alpha 的含义。
+
+## 正文内容
+
+Alpha 是材料的中心主张。
+
+## 思考题
+
+1. Beta 为什么能支撑 Alpha？
+
+## 你的反馈
+
+> 写下反馈。
+
+<!-- mastery: 能够解释原文的中心论证 -->
+"""
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _mock_stream([generated[:80], generated[80:]])
+        mock_get_client.return_value = mock_client
+
+        res = client.post(f"/api/courses/{cid}/next")
+
+    assert res.status_code == 200
+    assert '"lesson_number": 2' in res.text
+
+    next_lesson = client.get(f"/api/courses/{cid}/lessons/2").json()
+    assert next_lesson["is_source"] is False
+    assert "划线问题复盘" in next_lesson["content"]
+
+
+def test_highlight_creates_session_with_thread(client):
+    data = _mock_create_course(client)
+    cid = data["id"]
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_mock_response("这是对划线内容的即时回答。")
+        mock_get_client.return_value = mock_client
+
+        ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 0,
+            "position_end": 4,
+            "original_text": "正文内容",
+            "comment": "这段在讲什么？",
+            "anchor_top": 320,
+        })
+
+    assert ann.status_code == 200
+    body = ann.json()
+    # Every highlight now produces an answered Q&A session
+    assert "即时回答" in body["answer"]
+    assert body["anchor_top"] == 320
+    assert len(body["messages"]) == 2
+    assert body["messages"][0]["role"] == "user"
+    assert body["messages"][0]["content"] == "这段在讲什么？"
+    assert body["messages"][1]["role"] == "assistant"
+
+
+def test_highlight_session_followup(client):
+    data = _mock_create_course(client)
+    cid = data["id"]
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_mock_response("第一轮回答。")
+        mock_get_client.return_value = mock_client
+        ann = client.post(f"/api/courses/{cid}/lessons/1/annotations", json={
+            "position_start": 0, "position_end": 4,
+            "original_text": "正文内容", "comment": "第一个问题",
+        }).json()
+
+    aid = ann["id"]
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = _make_mock_response("追问的回答。")
+        mock_get_client.return_value = mock_client
+        res = client.post(
+            f"/api/courses/{cid}/lessons/1/annotations/{aid}/messages",
+            json={"content": "那再追问一下呢？"},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["messages"]) == 4
+    assert body["messages"][2]["content"] == "那再追问一下呢？"
+    assert "追问的回答" in body["messages"][3]["content"]
+    assert "追问的回答" in body["answer"]
+
+
+def test_highlight_followup_nonexistent_annotation(client):
+    data = _mock_create_course(client)
+    cid = data["id"]
+    res = client.post(
+        f"/api/courses/{cid}/lessons/1/annotations/9999/messages",
+        json={"content": "追问"},
+    )
+    assert res.status_code == 404
+
+
+def test_source_course_md_upload(client):
+    syllabus_resp = _make_mock_response(
+        "# Markdown 原文 · 课程大纲\n\n## 核心掌握项\n\n### 材料主线\n- [ ] 能够解释 Markdown 材料的中心论证"
+    )
+
+    with patch("app.courses.get_openai_client") as mock_get_client:
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = syllabus_resp
+        mock_get_client.return_value = mock_client
+
+        res = client.post(
+            "/api/courses/from-source",
+            data={"name": ""},
+            files={"file": ("source.md", b"# Title\n\nMarkdown body.", "text/markdown")},
+        )
+
+    assert res.status_code == 200
+    course = res.json()
+    assert course["name"] == "source"
+    assert course["mode"] == "source"
+    assert course["source_filename"] == "source.md"
+
+    lesson = client.get(f"/api/courses/{course['id']}/lessons/1").json()
+    assert lesson["is_source"] is True
+    assert "# Title" in lesson["content"]

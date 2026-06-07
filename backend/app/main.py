@@ -4,11 +4,12 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine, Base, ensure_sqlite_schema
 from app.courses import router as courses_router
 
 # Create tables
 Base.metadata.create_all(bind=engine)
+ensure_sqlite_schema()
 
 app = FastAPI(title="Bloom Learning API", version="0.2.0")
 

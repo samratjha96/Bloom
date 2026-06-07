@@ -1,20 +1,22 @@
 import logging
 import json
+import io
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from openai import OpenAI
+from pypdf import PdfReader
 
 from app.config import settings
 from app.database import get_db
 from app.models import Course, Syllabus, Lesson, Annotation, Feedback, LearningEvent
 from app.schemas import (
-    CreateCourseRequest, CourseResponse, CourseDetailResponse,
+    CreateCourseRequest, CourseResponse, CourseDetailResponse, CreateSourceCourseResponse,
     SyllabusResponse, SyllabusUpdateRequest,
     LessonListItem, LessonResponse,
-    CreateAnnotationRequest, AnnotationResponse,
+    CreateAnnotationRequest, AnnotationResponse, AddAnnotationMessageRequest,
     CreateFeedbackRequest, FeedbackResponse,
     CourseStatsResponse, GlobalStatsResponse,
 )
@@ -106,6 +108,66 @@ FIRST_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏�
 5. **类比优先**：每个抽象概念至少配一个生活化类比
 6. **先why后what**：先讲为什么需要学这个，再讲内容
 7. **认知负荷控制**：第一课只引入2-3个核心概念，不要铺开太多
+"""
+
+SOURCE_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
+
+学生刚读完一份用户上传的 PDF/TXT/Markdown 原始材料。你需要根据整份原文、学生划线提出的问题、以及你对这些问题的即时回答，生成下一篇学习课文。
+
+## 课程大纲
+{syllabus}
+
+## 原始材料文件
+{source_filename}
+
+## 原始材料全文
+{source_content}
+
+## 学生划线问答记录
+{source_annotations}
+
+## 当前课文编号：{lesson_number}
+
+## 输出格式（严格遵守）
+
+```markdown
+# [章节标题]
+
+> 前置知识：[列出阅读本文需要的前置知识]
+> 难度：[入门 / 进阶 / 高级]
+> 预计阅读时间：[X 分钟]
+
+---
+
+## 划线问题复盘
+
+> 本模块综合学生阅读原文时的划线问题，提炼真正的理解缺口。
+
+[先归纳学生问题背后的共性困惑，再纠正关键误解。不要机械重复每条问答。]
+
+---
+
+## 正文内容
+
+[清晰、有深度、有举例的知识阐述。必须从原始材料中抽取关键脉络，而不是泛泛讲课题。]
+
+## 思考题
+
+[2-3 个引导用户深入思考的问题，不给答案]
+
+## 你的反馈
+
+> 在这里写下你的问题、感悟、不理解的地方，或者你希望下一篇深入探讨的方向。
+
+<!-- mastery: 能够...; 能够... -->
+```
+
+## 规则
+1. 必须把原始材料当作主要教材，而不是只用课题名自由发挥
+2. 必须吸收划线问答记录，优先补足学生已经暴露的理解缺口
+3. 正文每次只推进 1-2 个核心概念，避免信息过载
+4. 隐藏 mastery 注释必须列出本篇覆盖的大纲掌握项原文，且与大纲 checkbox 文本完全一致
+5. 只输出 markdown 内容
 """
 
 NEXT_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
@@ -201,6 +263,16 @@ NEXT_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏�
 9. **思考题层次**：至少一题是应用级（把概念用到新场景），至少一题是分析级（比较、判断、推理）
 10. **掌握项标记**：在文档最末尾（反馈区之后）追加一个隐藏注释块，列出本篇覆盖了哪些大纲掌握项的原文（必须与大纲中的文字完全一致），格式如下：
     <!-- mastery: 能够解释核心概念A; 能够应用概念A解决简单问题 -->
+"""
+
+ANNOTATION_ANSWER_PROMPT = """你是一个一对一学习导师。学生正在阅读材料，并对划线内容提出了一个即时问题。
+
+## 回答要求
+1. 直接回答问题，先把这段话的意思讲清楚，再补必要背景
+2. 不要泛泛扩展到整门课，除非这是理解该划线内容所必需
+3. 如果学生的问题里有误解，温和但明确地指出
+4. 用中文回答，控制在 2-5 段
+5. 不要输出 markdown 标题
 """
 
 EVAL_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
@@ -370,6 +442,120 @@ def _call_llm(system_prompt: str, user_message: str) -> str:
     return response.choices[0].message.content
 
 
+def _call_llm_messages(system_prompt: str, history: list[dict]) -> str:
+    """Non-streaming LLM call with a multi-turn conversation history."""
+    client = get_openai_client()
+    response = client.chat.completions.create(
+        model=settings.LLM_MODEL,
+        messages=[{"role": "system", "content": system_prompt}, *history],
+    )
+    return response.choices[0].message.content
+
+
+async def _extract_upload_text(file: UploadFile) -> tuple[str, str]:
+    """Return (filename, extracted text) for a PDF, TXT, or Markdown upload."""
+    filename = file.filename or "uploaded-source"
+    suffix = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    raw = await file.read()
+
+    if suffix in ("txt", "md", "markdown"):
+        for encoding in ("utf-8", "utf-8-sig", "gb18030"):
+            try:
+                text = raw.decode(encoding)
+                break
+            except UnicodeDecodeError:
+                continue
+        else:
+            raise HTTPException(status_code=400, detail="文本文件编码无法识别，请转为 UTF-8 后重试")
+    elif suffix == "pdf":
+        try:
+            reader = PdfReader(io.BytesIO(raw))
+            text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception:
+            raise HTTPException(status_code=400, detail="PDF 解析失败，请确认文件未加密且包含可提取文本")
+    else:
+        raise HTTPException(status_code=400, detail="仅支持上传 PDF、TXT 或 MD 文件")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="文件中没有提取到可阅读文本")
+    return filename, text
+
+
+def _source_lesson_content(filename: str, source_text: str) -> str:
+    return f"""# 原始材料：{filename}
+
+> 前置知识：无
+> 难度：按原始材料而定
+> 预计阅读时间：按原文长度而定
+
+## 原文
+
+{source_text}
+
+## 你的反馈
+
+> 阅读时可以直接选中文字提问。读完后点击“我读完了”，系统会结合全文和划线问答生成下一篇。
+"""
+
+
+def _load_messages(annotation: Annotation) -> list[dict]:
+    """Parse stored message thread; fall back to comment/answer for old rows."""
+    if annotation.messages:
+        try:
+            data = json.loads(annotation.messages)
+            if isinstance(data, list) and data:
+                return data
+        except (ValueError, TypeError):
+            pass
+    history = [{"role": "user", "content": annotation.comment}]
+    if annotation.answer:
+        history.append({"role": "assistant", "content": annotation.answer})
+    return history
+
+
+def _annotation_to_response(annotation: Annotation) -> AnnotationResponse:
+    return AnnotationResponse(
+        id=annotation.id,
+        lesson_id=annotation.lesson_id,
+        position_start=annotation.position_start,
+        position_end=annotation.position_end,
+        original_text=annotation.original_text,
+        comment=annotation.comment,
+        answer=annotation.answer or "",
+        messages=_load_messages(annotation),
+        anchor_top=annotation.anchor_top or 0,
+        created_at=annotation.created_at,
+    )
+
+
+def _format_annotations(annotations: list[Annotation]) -> str:
+    if not annotations:
+        return "无划线问答记录。"
+    blocks = []
+    for item in annotations:
+        history = _load_messages(item)
+        turns = "\n".join(
+            f"  {'问' if m['role'] == 'user' else '答'}：{m['content']}" for m in history
+        )
+        blocks.append(f"- 原文「{item.original_text}」\n{turns}")
+    return "\n".join(blocks)
+
+
+def _answer_annotation_thread(course: Course, lesson: Lesson, selected_text: str, history: list[dict]) -> str:
+    """Answer the latest question in a highlight conversation, given full context + thread."""
+    context = course.source_content if course.mode == "source" and lesson.is_source else lesson.content
+    system_prompt = f"""{ANNOTATION_ANSWER_PROMPT}
+
+## 当前学习材料
+{context}
+
+## 学生划线内容
+{selected_text}
+"""
+    return _strip_markdown_fences(_call_llm_messages(system_prompt, history))
+
+
 def _count_mastery_items(syllabus_content: str) -> tuple[int, int]:
     """Count (checked, total) mastery checkbox items in syllabus."""
     checked = 0
@@ -433,7 +619,7 @@ def _auto_check_mastery(syllabus_content: str, lesson_content: str) -> str:
 @router.post("/courses", response_model=CourseDetailResponse)
 def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
     """Create course + AI generates syllabus + first lesson (blocking)."""
-    course = Course(name=req.name, status="learning")
+    course = Course(name=req.name, mode="topic", status="learning")
     db.add(course)
     db.flush()
 
@@ -461,10 +647,11 @@ def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
         db.refresh(course)
 
         return CourseDetailResponse(
-            id=course.id, name=course.name, status=course.status,
+            id=course.id, name=course.name, mode=course.mode, status=course.status,
             created_at=course.created_at, lesson_count=1,
             syllabus_content=syllabus_content,
             mastery_progress=0.0,
+            source_filename=course.source_filename,
         )
     except Exception as e:
         logger.exception("Course creation error")
@@ -472,14 +659,79 @@ def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail="课程创建失败，请稍后重试")
 
 
+@router.post("/courses/from-source", response_model=CreateSourceCourseResponse)
+async def create_course_from_source(
+    name: str = Form(""),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Create a source-mode course from an uploaded PDF/TXT/Markdown file."""
+    filename, source_text = await _extract_upload_text(file)
+    course_name = name.strip() or filename.rsplit(".", 1)[0]
+
+    course = Course(
+        name=course_name,
+        mode="source",
+        status="learning",
+        source_filename=filename,
+        source_content=source_text,
+    )
+    db.add(course)
+    db.flush()
+
+    try:
+        user_msg = f"""课题：{course_name}
+
+请根据以下用户上传原始材料生成课程大纲。大纲要服务于读懂并掌握这份材料，而不是泛泛讲同名主题。
+
+## 原始材料全文
+
+{source_text}
+"""
+        syllabus_content = _strip_markdown_fences(_call_llm(SYLLABUS_PROMPT, user_msg))
+        syllabus = Syllabus(course_id=course.id, content=syllabus_content)
+        db.add(syllabus)
+
+        source_lesson = Lesson(
+            course_id=course.id,
+            number=1,
+            content=_source_lesson_content(filename, source_text),
+            is_source=True,
+        )
+        db.add(source_lesson)
+
+        _record_event(db, course.id, "source_course_created")
+        _record_event(db, course.id, "source_lesson_created", lesson_number=1)
+
+        db.commit()
+        db.refresh(course)
+
+        return CreateSourceCourseResponse(
+            id=course.id,
+            name=course.name,
+            mode=course.mode,
+            status=course.status,
+            created_at=course.created_at,
+            lesson_count=1,
+            syllabus_content=syllabus_content,
+            mastery_progress=0.0,
+            source_filename=course.source_filename,
+        )
+    except Exception:
+        logger.exception("Source course creation error")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="材料课程创建失败，请稍后重试")
+
+
 @router.get("/courses", response_model=list[CourseResponse])
 def list_courses(db: Session = Depends(get_db)):
     courses = db.query(Course).order_by(Course.created_at.desc()).all()
     return [
         CourseResponse(
-            id=c.id, name=c.name, status=c.status,
+            id=c.id, name=c.name, mode=c.mode, status=c.status,
             created_at=c.created_at, lesson_count=len(c.lessons),
             mastery_progress=_mastery_progress(c.syllabus.content) if c.syllabus else 0.0,
+            source_filename=c.source_filename,
         )
         for c in courses
     ]
@@ -502,10 +754,11 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="课程不存在")
     progress = _mastery_progress(course.syllabus.content) if course.syllabus else 0.0
     return CourseDetailResponse(
-        id=course.id, name=course.name, status=course.status,
+        id=course.id, name=course.name, mode=course.mode, status=course.status,
         created_at=course.created_at, lesson_count=len(course.lessons),
         syllabus_content=course.syllabus.content if course.syllabus else None,
         mastery_progress=progress,
+        source_filename=course.source_filename,
     )
 
 
@@ -553,6 +806,7 @@ def list_lessons(course_id: int, db: Session = Depends(get_db)):
     return [
         LessonListItem(
             id=l.id, number=l.number, is_evaluation=l.is_evaluation,
+            is_source=l.is_source,
             title=_extract_title(l.content),
             has_feedback=l.feedback is not None,
             created_at=l.created_at,
@@ -586,18 +840,30 @@ def create_annotation(
     if not lesson:
         raise HTTPException(status_code=404, detail="课文不存在")
 
+    # Every highlight now opens an answered Q&A session.
+    history = [{"role": "user", "content": req.comment}]
+    try:
+        answer = _answer_annotation_thread(course, lesson, req.original_text, history)
+    except Exception:
+        logger.exception("Annotation answer generation error")
+        raise HTTPException(status_code=500, detail="划线问题回答失败，请稍后重试")
+    history.append({"role": "assistant", "content": answer})
+
     annotation = Annotation(
         lesson_id=lesson.id,
         position_start=req.position_start,
         position_end=req.position_end,
         original_text=req.original_text,
         comment=req.comment,
+        answer=answer,
+        messages=json.dumps(history, ensure_ascii=False),
+        anchor_top=req.anchor_top,
     )
     db.add(annotation)
-    _record_event(db, course_id, "annotation_added", lesson_number=lesson_num)
+    _record_event(db, course_id, "annotation_answered", lesson_number=lesson_num)
     db.commit()
     db.refresh(annotation)
-    return annotation
+    return _annotation_to_response(annotation)
 
 
 @router.get("/courses/{course_id}/lessons/{lesson_num}/annotations", response_model=list[AnnotationResponse])
@@ -612,7 +878,49 @@ def get_annotations(
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
         raise HTTPException(status_code=404, detail="课文不存在")
-    return db.query(Annotation).filter(Annotation.lesson_id == lesson.id).order_by(Annotation.created_at).all()
+    annotations = db.query(Annotation).filter(Annotation.lesson_id == lesson.id).order_by(Annotation.created_at).all()
+    return [_annotation_to_response(a) for a in annotations]
+
+
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_num}/annotations/{annotation_id}/messages",
+    response_model=AnnotationResponse,
+)
+def add_annotation_message(
+    course_id: int,
+    lesson_num: int,
+    annotation_id: int,
+    req: AddAnnotationMessageRequest,
+    db: Session = Depends(get_db),
+):
+    """Follow-up question within an existing highlight session — appends a Q&A turn."""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="课文不存在")
+    annotation = db.query(Annotation).filter(
+        Annotation.id == annotation_id, Annotation.lesson_id == lesson.id
+    ).first()
+    if not annotation:
+        raise HTTPException(status_code=404, detail="批注不存在")
+
+    history = _load_messages(annotation)
+    history.append({"role": "user", "content": req.content})
+    try:
+        answer = _answer_annotation_thread(course, lesson, annotation.original_text, history)
+    except Exception:
+        logger.exception("Annotation follow-up answer error")
+        raise HTTPException(status_code=500, detail="追问回答失败，请稍后重试")
+    history.append({"role": "assistant", "content": answer})
+
+    annotation.messages = json.dumps(history, ensure_ascii=False)
+    annotation.answer = answer  # keep latest answer in legacy column
+    _record_event(db, course_id, "annotation_answered", lesson_number=lesson_num)
+    db.commit()
+    db.refresh(annotation)
+    return _annotation_to_response(annotation)
 
 
 @router.delete("/courses/{course_id}/lessons/{lesson_num}/annotations/{annotation_id}")
@@ -715,13 +1023,7 @@ def generate_next_lesson(
     else:
         feedback_text = "学生没有提交反馈。"
 
-    annotations_text = ""
-    if last_annotations:
-        annotations_text = "\n".join(
-            f"- 原文「{a.original_text}」→ 批注：{a.comment}" for a in last_annotations
-        )
-    else:
-        annotations_text = "无批注。"
+    annotations_text = _format_annotations(last_annotations)
 
     next_number = last_lesson.number + 1
 
@@ -731,7 +1033,16 @@ def generate_next_lesson(
     last_questions = _extract_thought_questions(last_lesson.content) or \
         "（上一篇未显式列出思考题区块，请根据上一篇正文内容合理拟出其思考题再逐题复盘）"
 
-    if all_mastery_done:
+    if course.mode == "source" and last_lesson.is_source:
+        prompt = SOURCE_LESSON_PROMPT.format(
+            syllabus=syllabus_content,
+            source_filename=course.source_filename or "uploaded-source",
+            source_content=course.source_content or last_lesson.content,
+            source_annotations=_format_annotations(last_annotations),
+            lesson_number=next_number,
+        )
+        user_msg = f"根据原始材料和划线问答生成第{next_number}篇课文"
+    elif all_mastery_done:
         prompt = EVAL_LESSON_PROMPT.format(
             syllabus=syllabus_content,
             last_lesson=last_lesson.content,

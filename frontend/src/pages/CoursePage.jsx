@@ -100,6 +100,11 @@ export default function CoursePage() {
             }`}>
               {isCompleted ? '已完成' : '学习中'}
             </span>
+            {course.mode === 'source' && (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                原文模式
+              </span>
+            )}
             <span className="text-sm text-stone-400">
               <span className="font-mono tabular-nums">{normalLessons.length}</span> 篇课文
             </span>
@@ -183,6 +188,9 @@ export default function CoursePage() {
                         <span className="text-xs text-stone-400 font-mono tabular-nums">
                           {new Date(lesson.created_at).toLocaleDateString('zh-CN')}
                         </span>
+                        {lesson.is_source && (
+                          <span className="text-[10px] text-amber-500">上传原文</span>
+                        )}
                         {lesson.has_feedback && (
                           <span className="text-[10px] text-emerald-500">已反馈</span>
                         )}
@@ -190,6 +198,11 @@ export default function CoursePage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {lesson.is_source && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
+                        原文
+                      </span>
+                    )}
                     {lesson.is_evaluation && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
                         评估篇
