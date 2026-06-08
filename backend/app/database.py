@@ -18,11 +18,14 @@ def ensure_sqlite_schema():
     additions = {
         "courses": {
             "mode": "mode VARCHAR NOT NULL DEFAULT 'topic'",
+            "learning_depth": "learning_depth VARCHAR NOT NULL DEFAULT 'standard'",
+            "is_project": "is_project BOOLEAN NOT NULL DEFAULT 0",
             "source_filename": "source_filename VARCHAR",
             "source_content": "source_content TEXT",
         },
         "lessons": {
             "is_source": "is_source BOOLEAN DEFAULT 0",
+            "source_filename": "source_filename VARCHAR",
         },
         "annotations": {
             "answer": "answer TEXT DEFAULT ''",

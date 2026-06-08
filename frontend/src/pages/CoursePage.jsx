@@ -11,6 +11,8 @@ export default function CoursePage() {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [sortBy, setSortBy] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
 
   useEffect(() => {
     Promise.all([getCourse(courseId), getLessons(courseId)])
@@ -66,6 +68,14 @@ export default function CoursePage() {
   }
 
   const normalLessons = lessons.filter((l) => l.number > 0);
+  const sortedLessons = course?.is_project
+    ? [...normalLessons].sort((a, b) => {
+        const cmp = sortBy === 'time'
+          ? (new Date(a.created_at) - new Date(b.created_at) || (a.number - b.number))
+          : (a.source_filename || a.title || '').localeCompare(b.source_filename || b.title || '', 'zh');
+        return sortDir === 'asc' ? cmp : -cmp;
+      })
+    : normalLessons;
   const isCompleted = course.status === 'completed';
 
   return (
@@ -100,7 +110,11 @@ export default function CoursePage() {
             }`}>
               {isCompleted ? '已完成' : '学习中'}
             </span>
-            {course.mode === 'source' && (
+            {course.is_project ? (
+              <span className="text-xs px-2.5 py-1 rounded-full bg-violet-50 text-violet-600 border border-violet-100">
+                项目
+              </span>
+            ) : course.mode === 'source' && (
               <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-100">
                 原文模式
               </span>
@@ -114,7 +128,7 @@ export default function CoursePage() {
           </div>
 
           {/* Mastery progress bar */}
-          {course.mastery_progress !== undefined && (
+          {!course.is_project && course.mastery_progress !== undefined && (
             <div className="mt-4">
               <div className="flex items-center justify-between mb-1.5">
                 <span className="text-xs text-stone-400">掌握进度</span>
@@ -134,7 +148,20 @@ export default function CoursePage() {
 
         {/* Lesson list (syllabus as first item) */}
         <div className="mb-8">
-          <h2 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-4">目录</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xs font-medium text-stone-400 uppercase tracking-wide">{course.is_project ? '文件' : '目录'}</h2>
+            {course.is_project && (
+              <div className="flex items-center gap-1.5">
+                <div className="inline-flex rounded-lg border border-stone-200 bg-stone-50 p-0.5">
+                  <button type="button" onClick={() => setSortBy('name')} className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${sortBy === 'name' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>名称</button>
+                  <button type="button" onClick={() => setSortBy('time')} className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${sortBy === 'time' ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-700'}`}>时间</button>
+                </div>
+                <button type="button" onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))} className="px-2 py-1 rounded-md text-xs font-medium border border-stone-200 bg-white text-stone-600 hover:bg-stone-50 transition-all">
+                  {sortDir === 'asc' ? '↑ 升序' : '↓ 降序'}
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Syllabus entry — same style as lesson cards */}
           {course.syllabus_content && (
@@ -170,7 +197,7 @@ export default function CoursePage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {normalLessons.map((lesson) => (
+              {sortedLessons.map((lesson) => (
                 <button
                   key={lesson.id}
                   onClick={() => navigate(`/course/${courseId}/lesson/${lesson.number}`)}
@@ -182,7 +209,7 @@ export default function CoursePage() {
                     </span>
                     <div className="min-w-0">
                       <span className="font-medium text-stone-700 text-sm group-hover:text-stone-900 transition-colors block truncate">
-                        {lesson.title || `第 ${String(lesson.number).padStart(2, '0')} 篇`}
+                        {(course.is_project && lesson.source_filename) || lesson.title || `第 ${String(lesson.number).padStart(2, '0')} 篇`}
                       </span>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-stone-400 font-mono tabular-nums">

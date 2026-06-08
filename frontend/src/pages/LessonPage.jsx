@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Markdown from '../components/Markdown';
 import {
   getLesson, getLessons, getAnnotations, createAnnotation, deleteAnnotation,
-  addAnnotationMessage, submitFeedback, generateNextLesson, getFeedback, recordLessonOpened,
+  addAnnotationMessage, saveInterruptedAnnotation, submitFeedback, generateNextLesson, getFeedback, recordLessonOpened,
+  getCourse,
 } from '../lib/api';
 
 const HL_SUPPORTED = typeof CSS !== 'undefined' && CSS.highlights && typeof Highlight !== 'undefined';
@@ -57,6 +58,7 @@ export default function LessonPage() {
   const navigate = useNavigate();
 
   const [lesson, setLesson] = useState(null);
+  const [course, setCourse] = useState(null);
   const [allLessons, setAllLessons] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,9 +109,11 @@ export default function LessonPage() {
       getAnnotations(courseId, lessonNum),
       getLessons(courseId),
       getFeedback(courseId, lessonNum),
+      getCourse(courseId),
     ])
-      .then(([l, a, all, fb]) => {
+      .then(([l, a, all, fb, c]) => {
         setLesson(l);
+        setCourse(c);
         setSessions(a);
         setAllLessons(all.filter((x) => x.number > 0));
         if (fb.exists) {
@@ -307,11 +311,24 @@ export default function LessonPage() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        const partial = streamTextRef.current;
+        const partial = streamTextRef.current.trim();
         if (partial) {
-          setSessions((prev) => prev.map((s) => (s.id === tempId
-            ? { ...s, messages: [...s.messages, { role: 'assistant', content: partial }] }
-            : s)));
+          try {
+            const ann = await saveInterruptedAnnotation(courseId, lessonNum, {
+              position_start: temp.position_start,
+              position_end: temp.position_end,
+              original_text: temp.original_text,
+              comment: q,
+              anchor_top: temp.anchor_top,
+              partial_answer: streamTextRef.current,
+            });
+            setSessions((prev) => prev.map((s) => (s.id === tempId ? ann : s)));
+            setOpenId(ann.id);
+          } catch {
+            setSessions((prev) => prev.map((s) => (s.id === tempId
+              ? { ...s, messages: [...s.messages, { role: 'assistant', content: streamTextRef.current }] }
+              : s)));
+          }
         } else {
           setSessions((prev) => prev.filter((s) => s.id !== tempId));
           setOpenId(null);
@@ -355,13 +372,23 @@ export default function LessonPage() {
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        const partial = streamTextRef.current;
-        setSessions((prev) => prev.map((s) => {
-          if (s.id !== sessionId) return s;
-          return partial
-            ? { ...s, messages: [...s.messages, { role: 'assistant', content: partial }] }
-            : { ...s, messages: s.messages.slice(0, -1) };
-        }));
+        const partial = streamTextRef.current.trim();
+        if (partial) {
+          try {
+            const ann = await saveInterruptedAnnotation(courseId, lessonNum, {
+              annotation_id: sessionId,
+              question: q,
+              partial_answer: streamTextRef.current,
+            });
+            setSessions((prev) => prev.map((s) => (s.id === sessionId ? ann : s)));
+          } catch {
+            setSessions((prev) => prev.map((s) => (s.id === sessionId
+              ? { ...s, messages: [...s.messages, { role: 'assistant', content: streamTextRef.current }] }
+              : s)));
+          }
+        } else {
+          setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
+        }
       } else {
         setError(err.message);
         setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
@@ -428,6 +455,7 @@ export default function LessonPage() {
 
   const currentNum = parseInt(lessonNum, 10);
   const isSourceLesson = Boolean(lesson?.is_source);
+  const isProject = Boolean(course?.is_project);
 
   if (loading) {
     return (
@@ -699,6 +727,7 @@ export default function LessonPage() {
           </article>
 
           {/* Feedback section */}
+          {!isProject && (
           <div className="bg-white rounded-2xl border border-stone-200/60 p-6 md:p-8 mb-8">
             <h3 className="text-sm font-medium text-stone-800 mb-1">你的反馈</h3>
             <p className="text-xs text-stone-400 mb-5">
@@ -736,6 +765,7 @@ export default function LessonPage() {
               )}
             </div>
           </div>
+          )}
 
           {/* Error with retry */}
           {error && (
@@ -751,7 +781,7 @@ export default function LessonPage() {
           )}
 
           {/* Generate next / streaming */}
-          {generating ? (
+          {!isProject && (generating ? (
             <div className="bg-white rounded-2xl border border-emerald-200/40 p-6 md:p-8">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-4 h-4 rounded-full border-2 border-stone-200 border-t-emerald-600 animate-spin" />
@@ -772,7 +802,7 @@ export default function LessonPage() {
             >
               {isSourceLesson ? '我读完原文了 — 生成下一篇' : '我读完了 — 生成下一篇'}
             </button>
-          )}
+          ))}
 
           <p className="text-xs text-stone-300 text-center mt-4">
             提示：选中文字后点冒出的「提问」图标向 AI 发问（划线处会标黄）；窗口可拖动，缩小后点右侧小圆点重新打开
@@ -795,8 +825,9 @@ export default function LessonPage() {
               </button>
             )}
             <div className="lg:sticky lg:top-20">
-              <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3">章节</h3>
+              <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3">{isProject ? '文件' : '章节'}</h3>
               <nav className="space-y-0.5">
+                {!isProject && (
                 <button
                   onClick={() => { navigate(`/course/${courseId}/syllabus`); setShowMobileNav(false); }}
                   className="w-full text-left px-3 py-2 rounded-lg text-sm text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition-all duration-150 flex items-center gap-2.5 cursor-pointer"
@@ -808,6 +839,7 @@ export default function LessonPage() {
                   </span>
                   <span>大纲</span>
                 </button>
+                )}
 
                 {allLessons.map((l) => {
                   const isActive = l.number === currentNum;
@@ -826,7 +858,7 @@ export default function LessonPage() {
                           {String(l.number).padStart(2, '0')}
                         </span>
                         <span className="truncate">
-                          {l.title || `第 ${String(l.number).padStart(2, '0')} 篇`}
+                          {(isProject && l.source_filename) || l.title || `第 ${String(l.number).padStart(2, '0')} 篇`}
                         </span>
                         {l.is_source && (
                           <span className={`text-[10px] ml-auto shrink-0 ${isActive ? 'text-amber-300' : 'text-amber-500'}`}>

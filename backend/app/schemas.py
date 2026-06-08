@@ -19,6 +19,8 @@ class CreateSourceCourseResponse(BaseModel):
     name: str
     mode: str
     status: str
+    learning_depth: str = "standard"
+    is_project: bool = False
     created_at: datetime
     lesson_count: int = 0
     syllabus_content: str | None = None
@@ -33,6 +35,8 @@ class CourseResponse(BaseModel):
     name: str
     mode: str = "topic"
     status: str
+    learning_depth: str = "standard"
+    is_project: bool = False
     created_at: datetime
     lesson_count: int = 0
     mastery_progress: float = 0.0
@@ -46,6 +50,8 @@ class CourseDetailResponse(BaseModel):
     name: str
     mode: str = "topic"
     status: str
+    learning_depth: str = "standard"
+    is_project: bool = False
     created_at: datetime
     lesson_count: int = 0
     syllabus_content: str | None = None
@@ -75,6 +81,7 @@ class LessonListItem(BaseModel):
     number: int
     is_evaluation: bool
     is_source: bool = False
+    source_filename: str | None = None
     title: str = ""
     has_feedback: bool = False
     created_at: datetime
@@ -89,6 +96,7 @@ class LessonResponse(BaseModel):
     content: str
     is_evaluation: bool
     is_source: bool = False
+    source_filename: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -118,6 +126,21 @@ class CreateAnnotationRequest(BaseModel):
 
 class AddAnnotationMessageRequest(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
+
+
+class SaveInterruptedRequest(BaseModel):
+    """保存被用户中途「停止」的一轮划线问答，保留已生成的部分回答。
+
+    annotation_id=None → 首次提问被中断（新建批注）；有值 → 追问被中断（追加到该会话）。
+    """
+    annotation_id: int | None = None
+    position_start: int = Field(0, ge=0)
+    position_end: int = Field(0, ge=0)
+    original_text: str = Field("", max_length=5000)
+    comment: str = Field("", max_length=5000)
+    anchor_top: int = Field(0, ge=0)
+    question: str = Field("", max_length=5000)
+    partial_answer: str = Field("", max_length=100000)
 
 
 class AnnotationResponse(BaseModel):

@@ -53,6 +53,25 @@ export async function createSourceCourse(name, file, learningDepth = 'standard')
   return res.json();
 }
 
+// 上传一个或多个文件 / 整个文件夹作为「项目」：每个文件直接渲染、可随时划线提问。
+export async function createProjectCourse(name, files) {
+  const formData = new FormData();
+  formData.append('name', name);
+  for (const f of files) formData.append('files', f, f.webkitRelativePath || f.name);
+
+  const res = await fetch(`${API_BASE}/courses/from-project`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `请求失败 (${res.status})`);
+  }
+
+  return res.json();
+}
+
 export async function deleteCourse(courseId) {
   return apiRequest(`/courses/${courseId}`, { method: 'DELETE' });
 }
@@ -127,6 +146,14 @@ export async function createAnnotation(courseId, lessonNum, data, onChunk, onDon
 // Follow-up question in a session; the answer streams via onChunk, updated annotation via onDone.
 export async function addAnnotationMessage(courseId, lessonNum, annotationId, content, onChunk, onDone, signal) {
   return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations/${annotationId}/messages`, { content }, onChunk, onDone, signal);
+}
+
+// Persist a Q&A round the user stopped mid-stream — keeps the partial answer, returns the saved annotation.
+export async function saveInterruptedAnnotation(courseId, lessonNum, payload) {
+  return apiRequest(`/courses/${courseId}/lessons/${lessonNum}/annotations/save`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function deleteAnnotation(courseId, lessonNum, annotationId) {

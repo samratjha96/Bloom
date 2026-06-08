@@ -5,6 +5,7 @@ import {
   getCourses,
   createCourse,
   createSourceCourse,
+  createProjectCourse,
   deleteCourse,
   getGlobalStats,
   getRecommendations,
@@ -28,6 +29,38 @@ const LEARNING_DEPTH_OPTIONS = [
   { value: 'deep', label: '深入', hint: '原理展开' },
 ];
 
+const DEPTH_LABELS = { simple: '简单', standard: '标准', deep: '深入' };
+
+// 从拖拽的 DataTransfer 递归读出所有文件：文件夹展开成其内全部文件并保留相对路径，
+// 单个文件直接收下——代码自动判断文件/文件夹，无需用户区分。
+async function filesFromDataTransfer(dt) {
+  const items = [...(dt.items || [])];
+  const entries = items.map((it) => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null)).filter(Boolean);
+  if (!entries.length) return Array.from(dt.files || []);
+  const out = [];
+  const readAll = (reader) => new Promise((resolve) => {
+    const acc = [];
+    const step = () => reader.readEntries((batch) => {
+      if (!batch.length) return resolve(acc);
+      acc.push(...batch);
+      step();
+    }, () => resolve(acc));
+    step();
+  });
+  const walk = async (entry, prefix) => {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      try { Object.defineProperty(file, 'webkitRelativePath', { value: prefix + entry.name, configurable: true }); } catch { /* read-only in some browsers */ }
+      out.push(file);
+    } else if (entry.isDirectory) {
+      const children = await readAll(entry.createReader());
+      for (const c of children) await walk(c, prefix + entry.name + '/');
+    }
+  };
+  for (const e of entries) await walk(e, '');
+  return out;
+}
+
 export default function DashboardPage() {
   const [courses, setCourses] = useState([]);
   const [stats, setStats] = useState(null);
@@ -38,6 +71,8 @@ export default function DashboardPage() {
   const [learningDepth, setLearningDepth] = useState('standard');
   const [createMode, setCreateMode] = useState('topic');
   const [sourceFile, setSourceFile] = useState(null);
+  const [projectFiles, setProjectFiles] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [activeTab, setActiveTab] = useState('courses');
   const [loading, setLoading] = useState(true);
@@ -106,17 +141,27 @@ export default function DashboardPage() {
       setError('请先选择 PDF、TXT 或 MD 文件');
       return;
     }
+    if (createMode === 'project' && projectFiles.length === 0) {
+      setError('请先选择文件或文件夹');
+      return;
+    }
     setError('');
     setCreating(true);
     try {
       const sourceName = sourceFile?.name?.replace(/\.[^.]+$/, '') || '';
-      const course = createMode === 'source'
-        ? await createSourceCourse(newCourseName.trim() || sourceName, sourceFile, learningDepth)
-        : await createCourse(newCourseName.trim(), newCourseRef.trim(), learningDepth);
+      let course;
+      if (createMode === 'source') {
+        course = await createSourceCourse(newCourseName.trim() || sourceName, sourceFile, learningDepth);
+      } else if (createMode === 'project') {
+        course = await createProjectCourse(newCourseName.trim(), projectFiles);
+      } else {
+        course = await createCourse(newCourseName.trim(), newCourseRef.trim(), learningDepth);
+      }
       setCourses([course, ...courses]);
       setNewCourseName('');
       setNewCourseRef('');
       setSourceFile(null);
+      setProjectFiles([]);
       setShowCreate(false);
       navigate(`/course/${course.id}`);
     } catch (err) {
@@ -124,6 +169,13 @@ export default function DashboardPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const handleProjectDrop = async (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = await filesFromDataTransfer(e.dataTransfer);
+    if (files.length) setProjectFiles(files);
   };
 
   async function handleRefreshRecommendations() {
@@ -339,8 +391,20 @@ export default function DashboardPage() {
               >
                 上传原文
               </button>
+              <button
+                type="button"
+                onClick={() => setCreateMode('project')}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                  createMode === 'project'
+                    ? 'bg-white text-stone-900 shadow-sm'
+                    : 'text-stone-500 hover:text-stone-700'
+                }`}
+              >
+                项目文件
+              </button>
             </div>
 
+            {createMode !== 'project' && (
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1.5">学习深度</label>
               <div className="grid grid-cols-3 gap-2">
@@ -368,6 +432,7 @@ export default function DashboardPage() {
                 })}
               </div>
             </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-stone-700 mb-1.5">课题名称</label>
@@ -375,7 +440,7 @@ export default function DashboardPage() {
                 type="text"
                 value={newCourseName}
                 onChange={(e) => setNewCourseName(e.target.value)}
-                placeholder={createMode === 'source' ? '可留空，默认使用文件名' : '例如「博弈论基础」「Python 装饰器」'}
+                placeholder={createMode === 'topic' ? '例如「博弈论基础」「Python 装饰器」' : '可留空，默认使用文件名/文件夹名'}
                 className="w-full px-3.5 py-2.5 bg-white border border-stone-200 rounded-lg text-sm transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
                 autoFocus
                 disabled={creating}
@@ -397,7 +462,7 @@ export default function DashboardPage() {
                 />
                 <p className="text-xs text-stone-400 mt-1">AI 会根据这些材料设计课程大纲和课文内容</p>
               </div>
-            ) : (
+            ) : createMode === 'source' ? (
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1.5">PDF / TXT / MD 原文</label>
                 <label className="flex items-center justify-between gap-3 border border-dashed border-stone-300 rounded-lg px-3.5 py-3 bg-stone-50/70 hover:bg-stone-50 transition-colors cursor-pointer">
@@ -414,6 +479,32 @@ export default function DashboardPage() {
                   />
                 </label>
                 <p className="text-xs text-stone-400 mt-1">创建后先阅读原文，划线提问会立即回答；读完后再生成下一篇</p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1.5">项目文件 / 文件夹</label>
+                <label
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={handleProjectDrop}
+                  className={`flex flex-col items-center justify-center gap-1.5 border border-dashed rounded-lg px-4 py-7 text-center cursor-pointer transition-colors ${dragOver ? 'border-emerald-400 bg-emerald-50/60' : 'border-stone-300 bg-stone-50/70 hover:bg-stone-50'}`}
+                >
+                  <svg className="w-6 h-6 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                  </svg>
+                  <span className="text-sm text-stone-600">
+                    {projectFiles.length ? `已选 ${projectFiles.length} 个文件` : '拖入文件或文件夹，或点击选择文件'}
+                  </span>
+                  <span className="text-xs text-stone-400">拖文件夹会自动读取其中所有文件</span>
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    disabled={creating}
+                    onChange={(e) => setProjectFiles(Array.from(e.target.files || []))}
+                  />
+                </label>
+                <p className="text-xs text-stone-400 mt-1">每个文件单独渲染成一篇，可随时划线提问；不生成大纲、不生成下一篇</p>
               </div>
             )}
 
@@ -469,10 +560,21 @@ export default function DashboardPage() {
                     <h3 className="font-medium text-stone-800 group-hover:text-stone-900 transition-colors truncate">
                       {course.name}
                     </h3>
-                    {course.mode === 'source' && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
-                        原文
+                    {course.is_project ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600 border border-violet-100 shrink-0">
+                        项目
                       </span>
+                    ) : (
+                      <>
+                        {course.mode === 'source' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-100 shrink-0">
+                            原文
+                          </span>
+                        )}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-stone-100 text-stone-500 border border-stone-200/70 shrink-0">
+                          {DEPTH_LABELS[course.learning_depth] || '标准'}
+                        </span>
+                      </>
                     )}
                   </div>
                   <div className="flex items-center gap-3">

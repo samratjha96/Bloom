@@ -87,7 +87,7 @@ cd backend && uv sync && uv run uvicorn app.main:app --reload --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173. Click **New Course**, choose **Topic** or **Source Upload**, pick a learning depth, and start learning.
+Open http://localhost:5173. Click **New Course**, choose **Topic**, **Source Upload**, or **Project Files**, and start learning.
 
 ### Docker
 
@@ -129,10 +129,20 @@ Upload PDF / TXT / MD → AI generates syllabus + source-reading chapter
        Continue with the normal adaptive lesson flow
 ```
 
+### Project Files
+
+```
+Upload a file / multiple files / a whole folder → each file renders directly as one page
+                          ↓
+       Read each file → highlight text → ask and get an immediate answer
+                          ↓
+       No syllabus, no next-lesson generation; the files and highlight Q&A feed next-step recommendations
+```
+
 ## Features
 
-- **Two course modes** — generate from a topic, or upload a PDF/TXT/MD source
-- **Learning depth** — choose simple, standard, or deep syllabus expansion when creating a course
+- **Three course modes** — generate from a topic, upload a PDF/TXT/MD source, or **Project Files** (upload files/a folder, render each directly, highlight-ask anytime, no syllabus or next-lesson generation)
+- **Learning depth** — choose simple, standard, or deep syllabus expansion when creating a course; shown as a badge on each course card
 - **Reference material** — paste textbook chapters, papers, or notes when creating a topic course
 - **Next-topic recommendations** — generate 3 course-ready topics from your full learning history, refresh the set, save ideas to a learning queue, or start one directly through the normal syllabus → lesson flow
 - **Highlight Q&A sessions** — select any text in any lesson (or source) and a small icon pops up; click it to ask. The highlighted text stays marked in yellow, the AI answers instantly, and you can keep asking follow-ups in the same thread. The window is draggable and collapses into a margin dot you can reopen anytime. Each session sees the full lesson + the highlighted span + its own conversation, and your questions still feed the next lesson.

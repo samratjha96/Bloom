@@ -17,7 +17,7 @@ from app.schemas import (
     CreateCourseRequest, CourseResponse, CourseDetailResponse, CreateSourceCourseResponse,
     SyllabusResponse, SyllabusUpdateRequest,
     LessonListItem, LessonResponse,
-    CreateAnnotationRequest, AnnotationResponse, AddAnnotationMessageRequest,
+    CreateAnnotationRequest, AnnotationResponse, AddAnnotationMessageRequest, SaveInterruptedRequest,
     CreateFeedbackRequest, FeedbackResponse,
     CourseStatsResponse, GlobalStatsResponse,
     CalendarResponse, CalendarDay, CalendarCourseActivity,
@@ -541,6 +541,52 @@ async def _extract_upload_text(file: UploadFile) -> tuple[str, str]:
     return filename, text
 
 
+_CODE_LANGS = {
+    "py": "python", "js": "javascript", "jsx": "jsx", "ts": "typescript", "tsx": "tsx",
+    "java": "java", "c": "c", "h": "c", "cpp": "cpp", "cc": "cpp", "hpp": "cpp",
+    "cs": "csharp", "go": "go", "rs": "rust", "rb": "ruby", "php": "php", "swift": "swift",
+    "kt": "kotlin", "scala": "scala", "sh": "bash", "bash": "bash", "zsh": "bash",
+    "sql": "sql", "html": "html", "css": "css", "scss": "scss", "vue": "vue",
+    "json": "json", "yaml": "yaml", "yml": "yaml", "toml": "toml", "xml": "xml",
+    "r": "r", "lua": "lua", "dart": "dart", "ex": "elixir", "clj": "clojure",
+}
+
+
+async def _extract_project_file(file: UploadFile) -> tuple[str, str]:
+    """Read one project file → (path, markdown-ready content).
+
+    Markdown renders as-is; code/text files are wrapped in a fenced block so they
+    display readable (and highlightable) instead of being parsed as markdown.
+    """
+    path = file.filename or "file"
+    name = path.rsplit("/", 1)[-1]
+    suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    raw = await file.read()
+
+    if suffix == "pdf":
+        try:
+            reader = PdfReader(io.BytesIO(raw))
+            text = "\n\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception:
+            text = "（PDF 解析失败）"
+        return path, f"# {name}\n\n{text.strip()}"
+
+    text = None
+    for encoding in ("utf-8", "utf-8-sig", "gb18030"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        return path, f"# {name}\n\n> （二进制文件，无法以文本显示）"
+
+    if suffix in ("md", "markdown"):
+        return path, text
+    lang = _CODE_LANGS.get(suffix, "")
+    return path, f"# {name}\n\n```{lang}\n{text}\n```"
+
+
 def _source_lesson_content(filename: str, source_text: str) -> str:
     return f"""# 原始材料：{filename}
 
@@ -678,7 +724,7 @@ def _auto_check_mastery(syllabus_content: str, lesson_content: str) -> str:
 def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
     """Create course + AI generates syllabus + first lesson (blocking)."""
     depth_profile = _learning_depth_profile(req.learning_depth)
-    course = Course(name=req.name, mode="topic", status="learning")
+    course = Course(name=req.name, mode="topic", status="learning", learning_depth=req.learning_depth)
     db.add(course)
     db.flush()
 
@@ -707,6 +753,7 @@ def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
 
         return CourseDetailResponse(
             id=course.id, name=course.name, mode=course.mode, status=course.status,
+            learning_depth=course.learning_depth, is_project=course.is_project,
             created_at=course.created_at, lesson_count=1,
             syllabus_content=syllabus_content,
             mastery_progress=0.0,
@@ -734,6 +781,7 @@ async def create_course_from_source(
         name=course_name,
         mode="source",
         status="learning",
+        learning_depth=learning_depth,
         source_filename=filename,
         source_content=source_text,
     )
@@ -773,6 +821,8 @@ async def create_course_from_source(
             name=course.name,
             mode=course.mode,
             status=course.status,
+            learning_depth=course.learning_depth,
+            is_project=course.is_project,
             created_at=course.created_at,
             lesson_count=1,
             syllabus_content=syllabus_content,
@@ -785,12 +835,76 @@ async def create_course_from_source(
         raise HTTPException(status_code=500, detail="材料课程创建失败，请稍后重试")
 
 
+@router.post("/courses/from-project", response_model=CreateSourceCourseResponse)
+async def create_course_from_project(
+    name: str = Form(""),
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """上传一个文件或整个文件夹作为「项目」：每个文件直接渲染成一篇，可随时划线提问；不生成大纲、不生成下一篇。"""
+    if not files:
+        raise HTTPException(status_code=400, detail="请至少上传一个文件")
+
+    extracted: list[tuple[str, str]] = []
+    for f in files:
+        path, content = await _extract_project_file(f)
+        if content and content.strip():
+            extracted.append((path, content))
+    if not extracted:
+        raise HTTPException(status_code=400, detail="没有可读取的文件内容")
+
+    extracted.sort(key=lambda item: item[0])  # 默认按文件路径字典序排列
+
+    project_name = name.strip()
+    if not project_name:
+        first_path = extracted[0][0]
+        if len(extracted) == 1:
+            project_name = first_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        elif "/" in first_path:
+            project_name = first_path.split("/", 1)[0]
+        else:
+            project_name = "项目"
+
+    course = Course(
+        name=project_name,
+        mode="source",
+        is_project=True,
+        status="learning",
+        learning_depth="standard",
+        source_filename=extracted[0][0] if len(extracted) == 1 else None,
+    )
+    db.add(course)
+    db.flush()
+
+    for i, (path, content) in enumerate(extracted, start=1):
+        db.add(Lesson(
+            course_id=course.id,
+            number=i,
+            content=content,
+            is_source=True,
+            source_filename=path,
+        ))
+
+    _record_event(db, course.id, "project_created")
+    db.commit()
+    db.refresh(course)
+
+    return CreateSourceCourseResponse(
+        id=course.id, name=course.name, mode=course.mode,
+        status=course.status, learning_depth=course.learning_depth,
+        is_project=course.is_project, created_at=course.created_at,
+        lesson_count=len(extracted), syllabus_content=None,
+        mastery_progress=0.0, source_filename=course.source_filename,
+    )
+
+
 @router.get("/courses", response_model=list[CourseResponse])
 def list_courses(db: Session = Depends(get_db)):
     courses = db.query(Course).order_by(Course.created_at.desc()).all()
     return [
         CourseResponse(
             id=c.id, name=c.name, mode=c.mode, status=c.status,
+            learning_depth=c.learning_depth, is_project=c.is_project,
             created_at=c.created_at, lesson_count=len(c.lessons),
             mastery_progress=_mastery_progress(c.syllabus.content) if c.syllabus else 0.0,
             source_filename=c.source_filename,
@@ -817,6 +931,7 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
     progress = _mastery_progress(course.syllabus.content) if course.syllabus else 0.0
     return CourseDetailResponse(
         id=course.id, name=course.name, mode=course.mode, status=course.status,
+        learning_depth=course.learning_depth, is_project=course.is_project,
         created_at=course.created_at, lesson_count=len(course.lessons),
         syllabus_content=course.syllabus.content if course.syllabus else None,
         mastery_progress=progress,
@@ -868,7 +983,7 @@ def list_lessons(course_id: int, db: Session = Depends(get_db)):
     return [
         LessonListItem(
             id=lesson.id, number=lesson.number, is_evaluation=lesson.is_evaluation,
-            is_source=lesson.is_source,
+            is_source=lesson.is_source, source_filename=lesson.source_filename,
             title=_extract_title(lesson.content),
             has_feedback=lesson.feedback is not None,
             created_at=lesson.created_at,
@@ -1011,6 +1126,59 @@ def add_annotation_message(
             yield f"data: {json.dumps({'error': '追问回答失败，请稍后重试'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_num}/annotations/save", response_model=AnnotationResponse)
+def save_interrupted_annotation(
+    course_id: int,
+    lesson_num: int,
+    req: SaveInterruptedRequest,
+    db: Session = Depends(get_db),
+):
+    """用户中途点了「停止」：把已生成的部分回答落库（首次→新建批注，追问→追加到会话）。"""
+    course = db.query(Course).filter(Course.id == course_id).first()
+    if not course:
+        raise HTTPException(status_code=404, detail="课程不存在")
+    lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="课文不存在")
+
+    text = req.partial_answer.rstrip()
+    if not text:
+        raise HTTPException(status_code=400, detail="没有可保存的内容")
+
+    if req.annotation_id is None:
+        full_history = [
+            {"role": "user", "content": req.comment},
+            {"role": "assistant", "content": text},
+        ]
+        annotation = Annotation(
+            lesson_id=lesson.id,
+            position_start=req.position_start,
+            position_end=req.position_end,
+            original_text=req.original_text,
+            comment=req.comment,
+            answer=text,
+            messages=json.dumps(full_history, ensure_ascii=False),
+            anchor_top=req.anchor_top,
+        )
+        db.add(annotation)
+    else:
+        annotation = db.query(Annotation).filter(
+            Annotation.id == req.annotation_id, Annotation.lesson_id == lesson.id
+        ).first()
+        if not annotation:
+            raise HTTPException(status_code=404, detail="批注不存在")
+        history = _load_messages(annotation)
+        history.append({"role": "user", "content": req.question})
+        history.append({"role": "assistant", "content": text})
+        annotation.messages = json.dumps(history, ensure_ascii=False)
+        annotation.answer = text
+
+    _record_event(db, course_id, "annotation_answered", lesson_number=lesson_num)
+    db.commit()
+    db.refresh(annotation)
+    return _annotation_to_response(annotation)
 
 
 @router.delete("/courses/{course_id}/lessons/{lesson_num}/annotations/{annotation_id}")

@@ -20,6 +20,8 @@ class Course(Base):
     name = Column(String, nullable=False)
     mode = Column(String, default="topic", nullable=False)
     status = Column(String, default="learning")
+    learning_depth = Column(String, default="standard", nullable=False)
+    is_project = Column(Boolean, default=False, nullable=False)
     source_filename = Column(String, nullable=True)
     source_content = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
@@ -52,6 +54,7 @@ class Lesson(Base):
     content = Column(Text, nullable=False)
     is_evaluation = Column(Boolean, default=False)
     is_source = Column(Boolean, default=False)
+    source_filename = Column(String, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
 
     course = relationship("Course", back_populates="lessons")

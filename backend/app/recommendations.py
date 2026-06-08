@@ -112,6 +112,9 @@ def _build_learning_profile(db: Session) -> str:
 
     blocks = []
     for course in courses:
+        if course.is_project:
+            blocks.append(_project_profile_block(course))
+            continue
         lesson_titles = [
             _extract_title(lesson.content) or f"第{lesson.number}篇"
             for lesson in course.lessons
@@ -129,6 +132,29 @@ def _build_learning_profile(db: Session) -> str:
             ])
         )
     return "\n\n".join(blocks)
+
+
+def _project_profile_block(course: Course) -> str:
+    """项目课程的学习画像：文件清单 + 划线提问（用户在项目中的关注点与困惑）。"""
+    files = [
+        lesson.source_filename or _extract_title(lesson.content) or f"文件{lesson.number}"
+        for lesson in course.lessons
+        if lesson.number > 0
+    ][:12]
+    questions = []
+    for lesson in course.lessons:
+        for ann in lesson.annotations:
+            if ann.comment and ann.comment.strip():
+                questions.append(ann.comment.strip())
+    questions = questions[:10]
+    parts = [
+        f"- 项目：{course.name}（用户上传研读的文件 / 代码项目）",
+        f"  文件：{', '.join(files) if files else '暂无文件'}",
+    ]
+    if questions:
+        parts.append("  划线提问（用户在项目中的关注点与困惑）：")
+        parts.extend(f"    - {q}" for q in questions)
+    return "\n".join(parts)
 
 
 def _avoid_titles(db: Session) -> list[str]:
