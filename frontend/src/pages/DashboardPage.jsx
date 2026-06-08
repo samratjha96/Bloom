@@ -39,6 +39,7 @@ export default function DashboardPage() {
   const [createMode, setCreateMode] = useState('topic');
   const [sourceFile, setSourceFile] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [activeTab, setActiveTab] = useState('courses');
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [loadingStep, setLoadingStep] = useState(0);
@@ -236,20 +237,60 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-[1100px] mx-auto px-6 py-10">
-        {/* Page title + action */}
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight text-stone-900">我的课程</h2>
-            <p className="text-sm text-stone-400 mt-1">点击课程卡片进入学习</p>
+        {/* Tabs + action */}
+        <div className="flex items-center justify-between gap-3 mb-8">
+          <div className="inline-flex rounded-xl border border-stone-200 bg-stone-50 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('courses')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                activeTab === 'courses'
+                  ? 'bg-white text-stone-900 shadow-sm'
+                  : 'text-stone-500 hover:text-stone-700'
+              }`}
+            >
+              我的课程
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('next')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all cursor-pointer ${
+                activeTab === 'next'
+                  ? 'bg-white text-stone-900 shadow-sm'
+                  : 'text-stone-500 hover:text-stone-700'
+              }`}
+            >
+              下一步学习
+            </button>
           </div>
           <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-all duration-200 cursor-pointer"
+            onClick={() => { setActiveTab('courses'); setShowCreate((s) => !s); }}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-all duration-200 cursor-pointer shrink-0"
           >
             新建课程
           </button>
         </div>
 
+        {/* Error — 两个 tab 都可见 */}
+        {error && (
+          <div className="bg-rose-50 text-rose-600 text-sm px-4 py-2.5 rounded-lg mb-6 border border-rose-100">
+            {error}
+          </div>
+        )}
+
+        {activeTab === 'next' ? (
+          <RecommendationPanel
+            recommendations={recommendations}
+            savedRecommendations={savedRecommendations}
+            refreshing={refreshingRecommendations}
+            startingId={startingRecommendationId}
+            onRefresh={handleRefreshRecommendations}
+            onSave={handleSaveRecommendation}
+            onRemove={handleRemoveSavedRecommendation}
+            onStart={handleStartRecommendation}
+          />
+        ) : (
+          <>
         {/* Learning Stats */}
         {stats && (stats.total_courses > 0) && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
@@ -271,24 +312,6 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
-
-        {/* Error */}
-        {error && (
-          <div className="bg-rose-50 text-rose-600 text-sm px-4 py-2.5 rounded-lg mb-6 border border-rose-100">
-            {error}
-          </div>
-        )}
-
-        <RecommendationPanel
-          recommendations={recommendations}
-          savedRecommendations={savedRecommendations}
-          refreshing={refreshingRecommendations}
-          startingId={startingRecommendationId}
-          onRefresh={handleRefreshRecommendations}
-          onSave={handleSaveRecommendation}
-          onRemove={handleRemoveSavedRecommendation}
-          onStart={handleStartRecommendation}
-        />
 
         {/* Create form */}
         {showCreate && (
@@ -495,6 +518,8 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+        )}
+          </>
         )}
       </main>
     </div>

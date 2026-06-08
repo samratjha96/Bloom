@@ -88,11 +88,12 @@ export async function getAnnotations(courseId, lessonNum) {
 
 // Shared SSE reader for POST endpoints that stream `data: {...}` lines.
 // Calls onChunk(text) per token and onDone(data) on the final event; throws on {error}.
-async function postSSE(path, body, onChunk, onDone) {
+async function postSSE(path, body, onChunk, onDone, signal) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -119,13 +120,13 @@ async function postSSE(path, body, onChunk, onDone) {
 }
 
 // Create a highlight Q&A session; the answer streams via onChunk, final annotation via onDone.
-export async function createAnnotation(courseId, lessonNum, data, onChunk, onDone) {
-  return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations`, data, onChunk, onDone);
+export async function createAnnotation(courseId, lessonNum, data, onChunk, onDone, signal) {
+  return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations`, data, onChunk, onDone, signal);
 }
 
 // Follow-up question in a session; the answer streams via onChunk, updated annotation via onDone.
-export async function addAnnotationMessage(courseId, lessonNum, annotationId, content, onChunk, onDone) {
-  return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations/${annotationId}/messages`, { content }, onChunk, onDone);
+export async function addAnnotationMessage(courseId, lessonNum, annotationId, content, onChunk, onDone, signal) {
+  return postSSE(`/courses/${courseId}/lessons/${lessonNum}/annotations/${annotationId}/messages`, { content }, onChunk, onDone, signal);
 }
 
 export async function deleteAnnotation(courseId, lessonNum, annotationId) {

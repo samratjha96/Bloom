@@ -83,6 +83,8 @@ export default function LessonPage() {
 
   const contentRef = useRef(null);   // <article>
   const proseRef = useRef(null);     // markdown content only (excludes overlay)
+  const abortRef = useRef(null);     // AbortController for the active stream
+  const streamTextRef = useRef('');  // mirror of streamText, read at abort time
 
   useEffect(() => {
     setLoading(true);
@@ -275,8 +277,11 @@ export default function LessonPage() {
     setComposer(null);
     // keep cardRect from the composer so the card doesn't jump as it becomes the session
     setStreamText('');
+    streamTextRef.current = '';
     setStreaming(true);
     setError('');
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       let finalAnn = null;
       await createAnnotation(
@@ -289,8 +294,9 @@ export default function LessonPage() {
           answer_immediately: true,
           anchor_top: temp.anchor_top,
         },
-        (chunk) => setStreamText((t) => t + chunk),
+        (chunk) => { streamTextRef.current += chunk; setStreamText((t) => t + chunk); },
         (data) => { finalAnn = data.annotation; },
+        controller.signal,
       );
       if (finalAnn) {
         setSessions((prev) => prev.map((s) => (s.id === tempId ? finalAnn : s)));
@@ -300,10 +306,23 @@ export default function LessonPage() {
         setOpenId(null);
       }
     } catch (err) {
-      setError(err.message);
-      setSessions((prev) => prev.filter((s) => s.id !== tempId));
-      setOpenId(null);
+      if (err.name === 'AbortError') {
+        const partial = streamTextRef.current;
+        if (partial) {
+          setSessions((prev) => prev.map((s) => (s.id === tempId
+            ? { ...s, messages: [...s.messages, { role: 'assistant', content: partial }] }
+            : s)));
+        } else {
+          setSessions((prev) => prev.filter((s) => s.id !== tempId));
+          setOpenId(null);
+        }
+      } else {
+        setError(err.message);
+        setSessions((prev) => prev.filter((s) => s.id !== tempId));
+        setOpenId(null);
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       setStreamText('');
     }
@@ -316,14 +335,18 @@ export default function LessonPage() {
     // optimistically show the user's question; reverted if the request fails
     setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: [...s.messages, { role: 'user', content: q }] } : s)));
     setStreamText('');
+    streamTextRef.current = '';
     setStreaming(true);
     setError('');
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       let finalAnn = null;
       await addAnnotationMessage(
         courseId, lessonNum, sessionId, q,
-        (chunk) => setStreamText((t) => t + chunk),
+        (chunk) => { streamTextRef.current += chunk; setStreamText((t) => t + chunk); },
         (data) => { finalAnn = data.annotation; },
+        controller.signal,
       );
       if (finalAnn) {
         setSessions((prev) => prev.map((s) => (s.id === sessionId ? finalAnn : s)));
@@ -331,12 +354,27 @@ export default function LessonPage() {
         setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
       }
     } catch (err) {
-      setError(err.message);
-      setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
+      if (err.name === 'AbortError') {
+        const partial = streamTextRef.current;
+        setSessions((prev) => prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return partial
+            ? { ...s, messages: [...s.messages, { role: 'assistant', content: partial }] }
+            : { ...s, messages: s.messages.slice(0, -1) };
+        }));
+      } else {
+        setError(err.message);
+        setSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, messages: s.messages.slice(0, -1) } : s)));
+      }
     } finally {
+      abortRef.current = null;
       setStreaming(false);
       setStreamText('');
     }
+  };
+
+  const handleStopStreaming = () => {
+    abortRef.current?.abort();
   };
 
   const handleDeleteSession = async (id) => {
@@ -539,7 +577,12 @@ export default function LessonPage() {
                 <textarea
                   value={composer.draft}
                   onChange={(e) => setComposer((c) => ({ ...c, draft: e.target.value }))}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCreateSession(); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault();
+                      if (composer.draft.trim()) handleCreateSession();
+                    }
+                  }}
                   placeholder="针对这段话提一个问题..."
                   autoFocus
                   className="w-full border border-stone-200 rounded-lg p-2.5 text-sm resize-none h-20 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
@@ -617,18 +660,28 @@ export default function LessonPage() {
                     <textarea
                       value={followDraft}
                       onChange={(e) => setFollowDraft(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleFollowUp(s.id); } }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleFollowUp(s.id); } }}
                       placeholder="继续追问..."
                       rows={1}
                       className="flex-1 min-w-0 border border-stone-200 rounded-lg px-3 py-2 text-sm resize-none transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none max-h-24"
                     />
-                    <button
-                      onClick={() => handleFollowUp(s.id)}
-                      disabled={!followDraft.trim() || streaming}
-                      className="px-3 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 shrink-0 transition-all duration-200 cursor-pointer"
-                    >
-                      发送
-                    </button>
+                    {streaming ? (
+                      <button
+                        onClick={handleStopStreaming}
+                        className="px-3 py-2 text-xs bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 shrink-0 transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5"
+                      >
+                        <span className="w-2.5 h-2.5 rounded-[2px] bg-rose-500" />
+                        停止
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleFollowUp(s.id)}
+                        disabled={!followDraft.trim()}
+                        className="px-3 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 shrink-0 transition-all duration-200 cursor-pointer"
+                      >
+                        发送
+                      </button>
+                    )}
                   </div>
 
                   {/* Resize handles — drag any edge or corner */}
