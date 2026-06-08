@@ -271,7 +271,8 @@ export default function LessonPage() {
       const top = Math.max(0, Math.round(rect.top - articleRect.top));
       const left = Math.max(8, Math.min(Math.round(rect.right - articleRect.left), Math.round(articleRect.width - 72)));
       const start = charOffset(proseRef.current, range.startContainer, range.startOffset);
-      const end = start + text.length;
+      const end = charOffset(proseRef.current, range.endContainer, range.endOffset);
+      selection.removeAllRanges();
       setOpenId(null);
       setComposer(null);
       setMarker({ top, left, selectedText: text, start, end });
