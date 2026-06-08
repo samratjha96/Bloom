@@ -118,6 +118,17 @@ button:active:not(:disabled) {
   background-color: rgba(252, 211, 77, 0.55);
 }
 
+/* PDF.js 文本层：文字本身是透明的（真实字渲染在 canvas 上），下划线/描边会糊在字上，
+   所以这里只用干净的半透明黄底，让下面 canvas 的黑字清晰透出。 */
+.textLayer span::highlight(bloom-ann) {
+  background-color: rgba(250, 204, 21, 0.4);
+  text-decoration: none;
+}
+.textLayer span::highlight(bloom-pending) {
+  background-color: rgba(250, 204, 21, 0.6);
+  text-decoration: none;
+}
+
 /* Focus ring */
 input:focus-visible, textarea:focus-visible, select:focus-visible {
   outline: 2px solid var(--accent);
