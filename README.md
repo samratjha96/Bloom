@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <a href="https://li-evan.github.io/Bloom/"><img src="assets/hero.png" alt="Bloom — from average to the top 2%" width="820"></a>
+  <a href="https://li-evan.github.io/Bloom/"><img src="assets/github-home.png" alt="Bloom adaptive AI tutor interface" width="820"></a>
 </p>
 
 ---
