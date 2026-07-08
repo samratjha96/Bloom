@@ -19,24 +19,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/recommendations", tags=["recommendations"])
 
-RECOMMENDATION_PROMPT = """你是 Bloom 学习系统的学习路径推荐模块。
+RECOMMENDATION_PROMPT = """You are the learning path recommendation module of the Bloom learning system.
 
-你需要根据用户已经学过的所有课程、大纲掌握项、课文标题与待学习清单，推荐 3 个下一步学习主题。
+Based on all courses the user has already studied, syllabus mastery items, lesson titles, and the to-learn list, recommend 3 next learning topics.
 
-推荐原则：
-1. 主题必须从已学内容自底向上生长出来，说明它接在哪些旧知识之上
-2. 不要推荐已经学过、正在学、已收藏、已开始的主题
-3. 三个主题之间要有明显差异：一个补地基，一个做交叉连接，一个稍微向外扩展
-4. 主题名要适合直接创建课程，不要写成句子
-5. 只输出 JSON 数组，不要输出 markdown 或解释
+Recommendation principles:
+1. Topics must grow bottom-up from what the user has already learned; explain which prior knowledge each builds on
+2. Do not recommend topics the user has already studied, is currently studying, has saved, or has started
+3. The three topics must be clearly distinct: one reinforces foundations, one makes cross-connections, one extends slightly outward
+4. Topic names should be suitable for creating a course directly; do not write them as sentences
+5. Output only a JSON array; do not output markdown or explanations
 
-JSON 格式：
+JSON format:
 [
   {
-    "title": "主题名",
-    "rationale": "为什么现在学它，控制在 1-2 句",
-    "bridge": "它如何连接用户已学内容，控制在 1 句",
-    "source_topics": ["已学主题A", "已学主题B"]
+    "title": "topic name",
+    "rationale": "why to study it now, 1-2 sentences",
+    "bridge": "how it connects to what the user has already learned, 1 sentence",
+    "source_topics": ["learned topic A", "learned topic B"]
   }
 ]
 """
@@ -108,7 +108,7 @@ def _mastery_lines(course: Course) -> list[str]:
 def _build_learning_profile(db: Session) -> str:
     courses = db.query(Course).order_by(Course.created_at.asc()).all()
     if not courses:
-        return "用户还没有课程记录。请推荐适合作为长期学习地基的入门主题。"
+        return "The user has no course history yet. Please recommend introductory topics suitable as a foundation for long-term learning."
 
     blocks = []
     for course in courses:
@@ -116,18 +116,18 @@ def _build_learning_profile(db: Session) -> str:
             blocks.append(_project_profile_block(course))
             continue
         lesson_titles = [
-            _extract_title(lesson.content) or f"第{lesson.number}篇"
+            _extract_title(lesson.content) or f"Lesson {lesson.number}"
             for lesson in course.lessons
             if lesson.number > 0
         ][:8]
-        mastery = "\n".join(f"    {line}" for line in _mastery_lines(course)) or "    暂无大纲掌握项"
+        mastery = "\n".join(f"    {line}" for line in _mastery_lines(course)) or "    No syllabus mastery items yet"
         blocks.append(
             "\n".join([
-                f"- 课程：{course.name}",
-                f"  状态：{course.status}",
-                f"  进度：{round(_mastery_progress(course.syllabus.content) * 100) if course.syllabus else 0}%",
-                f"  课文：{', '.join(lesson_titles) if lesson_titles else '暂无课文'}",
-                "  掌握项：",
+                f"- Course: {course.name}",
+                f"  Status: {course.status}",
+                f"  Progress: {round(_mastery_progress(course.syllabus.content) * 100) if course.syllabus else 0}%",
+                f"  Lessons: {', '.join(lesson_titles) if lesson_titles else 'No lessons yet'}",
+                "  Mastery items:",
                 mastery,
             ])
         )
@@ -137,7 +137,7 @@ def _build_learning_profile(db: Session) -> str:
 def _project_profile_block(course: Course) -> str:
     """项目课程的学习画像：文件清单 + 划线提问（用户在项目中的关注点与困惑）。"""
     files = [
-        lesson.source_filename or _extract_title(lesson.content) or f"文件{lesson.number}"
+        lesson.source_filename or _extract_title(lesson.content) or f"File {lesson.number}"
         for lesson in course.lessons
         if lesson.number > 0
     ][:12]
@@ -148,11 +148,11 @@ def _project_profile_block(course: Course) -> str:
                 questions.append(ann.comment.strip())
     questions = questions[:10]
     parts = [
-        f"- 项目：{course.name}（用户上传研读的文件 / 代码项目）",
-        f"  文件：{', '.join(files) if files else '暂无文件'}",
+        f"- Project: {course.name} (files/code uploaded by user for study)",
+        f"  Files: {', '.join(files) if files else 'No files yet'}",
     ]
     if questions:
-        parts.append("  划线提问（用户在项目中的关注点与困惑）：")
+        parts.append("  Highlight questions (user's focus areas and confusion in the project):")
         parts.extend(f"    - {q}" for q in questions)
     return "\n".join(parts)
 
@@ -186,13 +186,13 @@ def _parse_recommendation_payload(raw: str) -> list[dict]:
 def _generate_recommendations(db: Session, generation: int) -> list[LearningRecommendation]:
     avoid = _avoid_titles(db)
     blocked = {_normalize_title(title) for title in avoid}
-    user_message = f"""## 已学内容画像
+    user_message = f"""## Learned Content Profile
 
 {_build_learning_profile(db)}
 
-## 不要推荐这些主题
+## Do Not Recommend These Topics
 
-{", ".join(avoid) if avoid else "无"}
+{", ".join(avoid) if avoid else "None"}
 """
     raw = _call_llm(RECOMMENDATION_PROMPT, user_message)
 
@@ -200,7 +200,7 @@ def _generate_recommendations(db: Session, generation: int) -> list[LearningReco
         payload = _parse_recommendation_payload(raw)
     except ValueError as exc:
         logger.exception("Recommendation payload parse error")
-        raise HTTPException(status_code=500, detail=f"推荐生成失败：模型返回格式无法解析（{exc}）")
+        raise HTTPException(status_code=500, detail=f"Recommendation generation failed: could not parse model response ({exc})")
 
     seen = set()
     recommendations = []
@@ -227,7 +227,7 @@ def _generate_recommendations(db: Session, generation: int) -> list[LearningReco
             break
 
     if len(recommendations) < 3:
-        raise HTTPException(status_code=500, detail="推荐生成失败：有效主题不足 3 个，请刷新重试")
+        raise HTTPException(status_code=500, detail="Recommendation generation failed: fewer than 3 valid topics; please refresh and try again")
     return recommendations
 
 
@@ -255,9 +255,9 @@ def save_recommendation(recommendation_id: int, db: Session = Depends(get_db)):
         LearningRecommendation.id == recommendation_id
     ).first()
     if not recommendation:
-        raise HTTPException(status_code=404, detail="推荐不存在")
+        raise HTTPException(status_code=404, detail="Recommendation not found")
     if recommendation.status == "started":
-        raise HTTPException(status_code=400, detail="已开始学习的推荐不能加入待学习清单")
+        raise HTTPException(status_code=400, detail="Cannot add a recommendation you've already started to the to-learn list")
     recommendation.status = "saved"
     db.commit()
     db.refresh(recommendation)
@@ -270,7 +270,7 @@ def remove_saved_recommendation(recommendation_id: int, db: Session = Depends(ge
         LearningRecommendation.id == recommendation_id
     ).first()
     if not recommendation:
-        raise HTTPException(status_code=404, detail="推荐不存在")
+        raise HTTPException(status_code=404, detail="Recommendation not found")
     recommendation.status = "dismissed"
     db.commit()
     return {"ok": True}
@@ -286,11 +286,11 @@ def start_recommendation(
         LearningRecommendation.id == recommendation_id
     ).first()
     if not recommendation:
-        raise HTTPException(status_code=404, detail="推荐不存在")
+        raise HTTPException(status_code=404, detail="Recommendation not found")
     if req.course_id:
         course = db.query(Course).filter(Course.id == req.course_id).first()
         if not course:
-            raise HTTPException(status_code=404, detail="课程不存在")
+            raise HTTPException(status_code=404, detail="Course not found")
     recommendation.status = "started"
     recommendation.course_id = req.course_id
     db.commit()

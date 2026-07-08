@@ -61,7 +61,7 @@ export default function SyllabusPage() {
       <div className="min-h-[100dvh] bg-stone-50 flex flex-col items-center justify-center gap-4">
         <p className="text-rose-500 text-sm">{error}</p>
         <button onClick={() => navigate(`/course/${courseId}`)} className="text-emerald-600 hover:text-emerald-700 text-sm font-medium transition-colors">
-          返回课程
+          Back to Course
         </button>
       </div>
     );
@@ -79,7 +79,7 @@ export default function SyllabusPage() {
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
-            返回课程
+            Back to Course
           </button>
           <span className="text-xs text-stone-500 font-mono">SYLLABUS</span>
         </div>
@@ -98,7 +98,7 @@ export default function SyllabusPage() {
         {/* Right sidebar — chapter nav (same as LessonPage) */}
         <aside className="hidden lg:block w-48 shrink-0">
           <div className="sticky top-20">
-            <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3">章节</h3>
+            <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3">Chapters</h3>
             <nav className="space-y-0.5">
               {/* Syllabus — active */}
               <div className="w-full text-left px-3 py-2 rounded-lg text-sm bg-stone-900 text-white flex items-center gap-2.5">
@@ -107,7 +107,7 @@ export default function SyllabusPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                   </svg>
                 </span>
-                <span>大纲</span>
+                <span>Outline</span>
               </div>
 
               {allLessons.map((l) => (
@@ -119,9 +119,9 @@ export default function SyllabusPage() {
                   <span className="font-mono tabular-nums text-xs text-stone-300">
                     {String(l.number).padStart(2, '0')}
                   </span>
-                  <span>第 {String(l.number).padStart(2, '0')} 篇</span>
+                  <span>Lesson {String(l.number).padStart(2, '0')}</span>
                   {l.is_evaluation && (
-                    <span className="text-[10px] ml-auto text-amber-500">评估</span>
+                    <span className="text-[10px] ml-auto text-amber-500">Eval</span>
                   )}
                 </button>
               ))}

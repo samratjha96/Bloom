@@ -95,7 +95,7 @@ export default function PdfViewer({ url, highlights = [], onSelect, onOpenHighli
         }
         if (!cancelled) setReady((t) => t + 1);
       } catch (e) {
-        if (!cancelled) host.innerHTML = `<p style="color:#dc2626;font-size:13px;padding:1rem;">PDF 加载失败：${e?.message || e}</p>`;
+        if (!cancelled) host.innerHTML = `<p style="color:#dc2626;font-size:13px;padding:1rem;">Failed to load PDF: ${e?.message || e}</p>`;
       }
     })();
 
@@ -121,7 +121,7 @@ export default function PdfViewer({ url, highlights = [], onSelect, onOpenHighli
         const cursor = hl.pending ? 'default' : 'pointer';
         div.style.cssText = `position:absolute;left:${r.x * p.width}px;top:${r.y * p.height}px;width:${r.w * p.width}px;height:${r.h * p.height}px;background:${bg};border-radius:2px;pointer-events:${pointer};cursor:${cursor};`;
         if (!hl.pending) {
-          div.title = '点击查看这条划线问答';
+          div.title = 'Click to view this highlight Q&A';
           div.onclick = () => onOpenHighlight && onOpenHighlight(hl.id);
         }
         p.hlLayer.appendChild(div);

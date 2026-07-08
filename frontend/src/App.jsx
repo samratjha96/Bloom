@@ -4,9 +4,11 @@ import ProfilePage from './pages/ProfilePage'
 import CoursePage from './pages/CoursePage'
 import LessonPage from './pages/LessonPage'
 import SyllabusPage from './pages/SyllabusPage'
+import ErrorBoundary from './components/ErrorBoundary'
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <Routes>
       <Route path="/" element={<DashboardPage />} />
       <Route path="/profile" element={<ProfilePage />} />
@@ -15,5 +17,6 @@ export default function App() {
       <Route path="/course/:courseId/lesson/:lessonNum" element={<LessonPage />} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
+    </ErrorBoundary>
   )
 }

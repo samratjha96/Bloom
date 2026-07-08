@@ -3,8 +3,8 @@ const API_BASE = '/api';
 // FastAPI 422 的 detail 是数组（每项含 msg），直接 throw 会显示成 "[object Object]"；这里提取成可读文本。
 function extractDetail(data, status) {
   const d = data?.detail;
-  if (Array.isArray(d)) return d.map((e) => e?.msg || JSON.stringify(e)).join('；');
-  return d || `请求失败 (${status})`;
+  if (Array.isArray(d)) return d.map((e) => e?.msg || JSON.stringify(e)).join('; ');
+  return d || `Request failed (${status})`;
 }
 
 export async function apiRequest(path, options = {}) {

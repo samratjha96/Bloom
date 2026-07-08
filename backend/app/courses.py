@@ -29,38 +29,38 @@ router = APIRouter(prefix="/api", tags=["courses"])
 
 LEARNING_DEPTH_PROFILES = {
     "simple": {
-        "label": "简单",
-        "modules": "2-3 个模块",
-        "items": "8-10 条掌握项",
-        "focus": "只保留课题主干、最低必要概念和高频应用场景；避免历史脉络、复杂证明、分支争议和高级扩展。",
+        "label": "Simple",
+        "modules": "2–3 modules",
+        "items": "8–10 mastery items",
+        "focus": "Retain only the core trunk of the topic, the minimum necessary concepts, and high-frequency applications; avoid historical context, complex proofs, fringe debates, and advanced extensions.",
     },
     "standard": {
-        "label": "标准",
-        "modules": "3-4 个模块",
-        "items": "10-12 条掌握项",
-        "focus": "覆盖核心概念、关键推理、典型应用和常见误区；在体系完整和认知负荷之间保持平衡。",
+        "label": "Standard",
+        "modules": "3–4 modules",
+        "items": "10–12 mastery items",
+        "focus": "Cover core concepts, key reasoning, typical applications, and common misconceptions; balance completeness with cognitive load.",
     },
     "deep": {
-        "label": "深入",
-        "modules": "4-5 个模块",
-        "items": "12-15 条掌握项",
-        "focus": "从第一性原理展开，加入底层机制、边界条件、反例、跨场景迁移和批判性判断。",
+        "label": "Deep",
+        "modules": "4–5 modules",
+        "items": "12–15 mastery items",
+        "focus": "Build from first principles; include underlying mechanisms, boundary conditions, counterexamples, cross-context transfer, and critical judgment.",
     },
 }
 
 
 def _learning_depth_profile(learning_depth: str) -> dict[str, str]:
     if learning_depth not in LEARNING_DEPTH_PROFILES:
-        raise HTTPException(status_code=400, detail="学习深度必须是 simple、standard 或 deep")
+        raise HTTPException(status_code=400, detail="Learning depth must be simple, standard, or deep")
     return LEARNING_DEPTH_PROFILES[learning_depth]
 
 
 def _build_syllabus_prompt(learning_depth: str) -> str:
     profile = _learning_depth_profile(learning_depth)
-    depth_section = f"""- 学习深度：{profile['label']}
-- 模块数量：{profile['modules']}
-- 掌握项数量：{profile['items']}
-- 展开策略：{profile['focus']}"""
+    depth_section = f"""- Learning depth: {profile['label']}
+- Number of modules: {profile['modules']}
+- Number of mastery items: {profile['items']}
+- Expansion strategy: {profile['focus']}"""
     return SYLLABUS_PROMPT.format(learning_depth_section=depth_section)
 
 
@@ -68,353 +68,353 @@ def _build_syllabus_prompt(learning_depth: str) -> str:
 # AI System Prompts
 # ---------------------------------------------------------------------------
 
-SYLLABUS_PROMPT = """你是一个课程大纲设计专家。根据用户给出的课题名称，生成一份结构化的课程大纲。
+SYLLABUS_PROMPT = """You are an expert course syllabus designer. Based on the topic name given by the user, generate a structured course syllabus.
 
-## 学习深度（必须遵守）
+## Learning Depth (must be followed)
 {learning_depth_section}
 
-## 输出格式（严格遵守，不要加额外说明）
+## Output Format (follow strictly — no extra commentary)
 
 ```markdown
-# [课题名] · 课程大纲
+# [Topic Name] · Course Syllabus
 
-> 这份大纲定义了完成本课题后你将掌握的所有能力。
-> 学习深度：[简单 / 标准 / 深入]
-> 文档数量因人而异，但掌握内容不打折扣。
+> This syllabus defines all the competencies you will have mastered upon completing this topic.
+> Learning depth: [Simple / Standard / Deep]
+> The number of lessons varies by person, but the learning content is never compromised.
 
-## 核心掌握项
+## Core Mastery Items
 
-完成本课题后，你将能够：
+After completing this topic, you will be able to:
 
-### [模块一名称]
-- [ ] [具体能力描述，用"能够……"句式，可验证]
-- [ ] [具体能力描述]
+### [Module One Name]
+- [ ] [Specific competency description, phrased as "be able to…", verifiable]
+- [ ] [Specific competency description]
 
-### [模块二名称]
-- [ ] [具体能力描述]
-- [ ] [具体能力描述]
+### [Module Two Name]
+- [ ] [Specific competency description]
+- [ ] [Specific competency description]
 
-## 不在本课题范围内
+## Out of Scope
 
-- [明确列出哪些相关主题本课不涵盖]
+- [Clearly list which related topics are not covered in this course]
 
-## 学习进度
+## Learning Progress
 
-| 文档 | 覆盖掌握项 | 生成日期 |
-|------|-----------|---------|
+| Lesson | Mastery Items Covered | Date Generated |
+|--------|----------------------|----------------|
 ```
 
-## 规则
-1. 所有掌握项必须是**可验证的行为**（能解释、能推导、能应用、能判断），禁止写"了解 X""熟悉 Y"
-2. 模块数量必须服从上方学习深度要求，同时按知识的内在逻辑分组
-3. 总条目数必须服从上方学习深度要求，且所有条目必须有实质差异
-4. "不在本课题范围内"必须填写
-5. 只输出 markdown 内容，不要加任何前缀说明或后缀解释
+## Rules
+1. All mastery items must be **verifiable behaviors** (can explain, derive, apply, or judge) — "understand X" or "be familiar with Y" are forbidden
+2. Module count must follow the learning depth specified above, grouped by the internal logic of the knowledge
+3. Total item count must follow the learning depth specified above, and all items must be substantively distinct
+4. "Out of Scope" must be filled in
+5. Output only markdown content — no prefix or suffix explanations
 """
 
-FIRST_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
+FIRST_LESSON_PROMPT = """You are a one-on-one Socratic tutor grounded in Bloom's 2-Sigma theory.
 
-根据以下课程大纲，生成第一篇课文（01）。
+Based on the course syllabus below, generate the first lesson (01).
 
-## 课程大纲
+## Course Syllabus
 {syllabus}
 
-## 输出格式（严格遵守）
+## Output Format (follow strictly)
 
 ```markdown
-# [章节标题]
+# [Chapter Title]
 
-> 前置知识：[列出阅读本文需要的前置知识]
-> 难度：[入门 / 进阶 / 高级]
-> 预计阅读时间：[X 分钟]
+> Prerequisites: [list the prerequisites needed to read this lesson]
+> Difficulty: [Beginner / Intermediate / Advanced]
+> Estimated reading time: [X minutes]
 
-## 正文内容
+## Content
 
-[清晰、有深度、有举例的知识阐述]
-[关键概念用 **加粗** 标注]
-[重要定义或公式用引用块]
+[Clear, substantive, example-rich knowledge exposition]
+[Key concepts in **bold**]
+[Important definitions or formulas in blockquotes]
 
-## 思考题
+## Reflection Questions
 
-[2-3 个引导用户深入思考的问题，不给答案]
+[2–3 questions that guide the reader into deeper thinking — no answers provided]
 
-## 你的反馈
+## Your Feedback
 
-> 在这里写下你的问题、感悟、不理解的地方，或者你希望下一篇深入探讨的方向。
+> Write your questions, insights, things you didn't understand, or directions you'd like the next lesson to explore.
 ```
 
-## 规则
-1. 内容要有实质性的知识增量，不要太水
-2. 关键概念加粗，重要定义用引用块
-3. 思考题要有深度，引导用户思考而不是简单记忆
-4. 只输出 markdown 内容
-5. **类比优先**：每个抽象概念至少配一个生活化类比
-6. **先why后what**：先讲为什么需要学这个，再讲内容
-7. **认知负荷控制**：第一课只引入2-3个核心概念，不要铺开太多
-8. **深度一致**：第一课的展开力度必须服从大纲中的学习深度；简单重主干，标准重完整，深入重底层机制和边界
+## Rules
+1. Content must have substantive knowledge value — avoid superficiality
+2. Bold key concepts; put important definitions in blockquotes
+3. Reflection questions must be thought-provoking, not simple recall
+4. Output only markdown content
+5. **Analogy first**: every abstract concept gets at least one everyday analogy
+6. **Why before what**: explain why this topic matters before explaining the content
+7. **Cognitive load control**: the first lesson introduces only 2–3 core concepts — don't spread too wide
+8. **Consistent depth**: the first lesson's depth must match the learning depth in the syllabus; simple = trunk only, standard = complete coverage, deep = underlying mechanisms and edge cases
 """
 
-SOURCE_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
+SOURCE_LESSON_PROMPT = """You are a one-on-one Socratic tutor grounded in Bloom's 2-Sigma theory.
 
-学生刚读完一份用户上传的 PDF/TXT/Markdown 原始材料。你需要根据整份原文、学生划线提出的问题、以及你对这些问题的即时回答，生成下一篇学习课文。
+The student has just finished reading a user-uploaded PDF/TXT/Markdown source document. Based on the full text, the student's highlighted questions, and your immediate answers to those questions, generate the next lesson.
 
-## 课程大纲
+## Course Syllabus
 {syllabus}
 
-## 原始材料文件
+## Source Document File
 {source_filename}
 
-## 原始材料全文
+## Full Source Document
 {source_content}
 
-## 学生划线问答记录
+## Student Highlight Q&A Record
 {source_annotations}
 
-## 当前课文编号：{lesson_number}
+## Current Lesson Number: {lesson_number}
 
-## 输出格式（严格遵守）
+## Output Format (follow strictly)
 
 ```markdown
-# [章节标题]
+# [Chapter Title]
 
-> 前置知识：[列出阅读本文需要的前置知识]
-> 难度：[入门 / 进阶 / 高级]
-> 预计阅读时间：[X 分钟]
-
----
-
-## 划线问题复盘
-
-> 本模块综合学生阅读原文时的划线问题，提炼真正的理解缺口。
-
-[先归纳学生问题背后的共性困惑，再纠正关键误解。不要机械重复每条问答。]
+> Prerequisites: [list the prerequisites needed to read this lesson]
+> Difficulty: [Beginner / Intermediate / Advanced]
+> Estimated reading time: [X minutes]
 
 ---
 
-## 正文内容
+## Highlight Review
 
-[清晰、有深度、有举例的知识阐述。必须从原始材料中抽取关键脉络，而不是泛泛讲课题。]
+> This section synthesizes the student's highlighted questions from the source document to surface genuine comprehension gaps.
 
-## 思考题
+[First identify common misconceptions behind the student's questions, then correct key misunderstandings. Do not mechanically repeat each Q&A pair.]
 
-[2-3 个引导用户深入思考的问题，不给答案]
+---
 
-## 你的反馈
+## Content
 
-> 在这里写下你的问题、感悟、不理解的地方，或者你希望下一篇深入探讨的方向。
+[Clear, substantive, example-rich knowledge exposition. Extract the key threads from the source material rather than broadly discussing the topic.]
 
-<!-- mastery: 能够...; 能够... -->
+## Reflection Questions
+
+[2–3 questions that guide the reader into deeper thinking — no answers provided]
+
+## Your Feedback
+
+> Write your questions, insights, things you didn't understand, or directions you'd like the next lesson to explore.
+
+<!-- mastery: be able to...; be able to... -->
 ```
 
-## 规则
-1. 必须把原始材料当作主要教材，而不是只用课题名自由发挥
-2. 必须吸收划线问答记录，优先补足学生已经暴露的理解缺口
-3. 正文每次只推进 1-2 个核心概念，避免信息过载
-4. 隐藏 mastery 注释必须列出本篇覆盖的大纲掌握项原文，且与大纲 checkbox 文本完全一致
-5. 只输出 markdown 内容
+## Rules
+1. Treat the source material as the primary textbook — do not improvise freely from the topic name alone
+2. Incorporate the highlight Q&A record; prioritize closing comprehension gaps the student has already revealed
+3. The main content introduces only 1–2 core concepts at a time to avoid overload
+4. The hidden mastery comment must list the exact mastery item text from the syllabus covered in this lesson, matching the syllabus checkbox text exactly
+5. Output only markdown content
 """
 
-NEXT_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
+NEXT_LESSON_PROMPT = """You are a one-on-one Socratic tutor grounded in Bloom's 2-Sigma theory.
 
-根据学生的反馈和批注，生成下一篇课文。
+Based on the student's feedback and annotations, generate the next lesson.
 
-## 课程大纲
+## Course Syllabus
 {syllabus}
 
-## 已完成的课文
+## Completed Lessons
 {previous_lessons}
 
-## 上一篇课文的学生反馈
+## Student Feedback on the Previous Lesson
 {feedback}
 
-## 上一篇课文中的学生批注（学生在阅读时选中文字标记的困惑或想法）
+## Student Annotations on the Previous Lesson (text the student highlighted while reading)
 {annotations}
 
-## 上一篇的真实思考题（以下是上一篇文末真实列出的思考题原文，复盘必须严格对应它）
+## Actual Reflection Questions from the Previous Lesson (the review section must map to these exactly)
 {last_questions}
 
-## 当前课文编号：{lesson_number}
+## Current Lesson Number: {lesson_number}
 
-## 输出格式（严格遵守）
+## Output Format (follow strictly)
 
 ```markdown
-# [章节标题]
+# [Chapter Title]
 
-> 前置知识：[列出阅读本文需要的前置知识]
-> 难度：[入门 / 进阶 / 高级]
-> 预计阅读时间：[X 分钟]
-
----
-
-## 上一篇思考题复盘
-
-> 📝 本模块评估你对上一篇思考题的回答，并给出正确答案。
-
-### 你的回答评估
-
-[逐题评估用户回答：✅对/❌错/⚠️部分正确，简要说明理由]
-[如果用户没有作答，注明"未作答"，直接给出正确答案]
-
-### 正确答案
-
-[严格按「上一篇的真实思考题」逐题复盘：上一篇有几题就复盘几题，题号、顺序、题面与原题一致，一题都不能漏，也不要新增或改写成泛化主题。即使学生未作答，也要逐题给出正确答案。格式如下：]
-
-**第1题：** [题目简述（保留原题要点，勿改写成泛化主题）]
-> [完整的正确答案和必要的解析]
-
-**第2题：** [题目简述]
-> [完整的正确答案和必要的解析]
-
-（……依此类推，直到覆盖「上一篇的真实思考题」中的最后一题）
+> Prerequisites: [list the prerequisites needed to read this lesson]
+> Difficulty: [Beginner / Intermediate / Advanced]
+> Estimated reading time: [X minutes]
 
 ---
 
-## 批注解答
+## Previous Lesson Reflection Review
 
-> 💬 本模块解答学生在上一篇中标记的所有困惑。
+> 📝 This section evaluates your answers to the previous lesson's reflection questions and provides correct answers.
 
-[若无批注，写"上一篇中没有批注，直接进入新内容。"]
+### Your Answer Evaluation
+
+[Evaluate each answer in turn: ✅ correct / ❌ incorrect / ⚠️ partially correct, with a brief explanation]
+[If the student did not answer, note "Not answered" and give the correct answer directly]
+
+### Correct Answers
+
+[Review each question strictly following the "Actual Reflection Questions from the Previous Lesson": review exactly as many questions as appeared in the previous lesson, in the same order and wording, with none omitted, added, or reworded into a generalized theme. Even if the student did not answer, provide the correct answer for each question. Format:]
+
+**Question 1:** [brief description of the question (preserve the key point of the original — do not reword into a generalized theme)]
+> [Complete correct answer and necessary analysis]
+
+**Question 2:** [brief description]
+> [Complete correct answer and necessary analysis]
+
+(…continue until all questions from the "Actual Reflection Questions from the Previous Lesson" are covered)
 
 ---
 
-## 正文内容
+## Annotation Responses
 
-[清晰、有深度、有举例的知识阐述]
+> 💬 This section addresses all comprehension questions the student marked in the previous lesson.
 
-## 思考题
+[If no annotations, write "No annotations in the previous lesson. Proceeding to new content."]
 
-[2-3 个引导用户深入思考的问题，不给答案]
+---
 
-## 你的反馈
+## Content
 
-> 在这里写下你的问题、感悟、不理解的地方，或者你希望下一篇深入探讨的方向。
+[Clear, substantive, example-rich knowledge exposition]
+
+## Reflection Questions
+
+[2–3 questions that guide the reader into deeper thinking — no answers provided]
+
+## Your Feedback
+
+> Write your questions, insights, things you didn't understand, or directions you'd like the next lesson to explore.
 ```
 
-## 规则
+## Rules
 
-**【最高优先级】「上一篇思考题复盘」必须严格逐题对应前面给出的「上一篇的真实思考题」：上一篇有几题就复盘几题，题号、顺序、题面与原题保持一致，不得遗漏、新增或改写成泛化主题；即使学生未作答也要逐题给出正确答案。**
+**[HIGHEST PRIORITY] The "Previous Lesson Reflection Review" must map strictly to the "Actual Reflection Questions from the Previous Lesson": review exactly as many questions as appeared, in the same order and with the same wording, with none omitted, added, or reworded into a generalized theme. Even if the student did not answer, provide the correct answer for each question.**
 
-1. 必须严格按照"思考题复盘 → 批注解答 → 正文新内容"的顺序
-2. 基于学生反馈和批注调整内容深度和方向
-3. 每篇文档应覆盖大纲中至少一条掌握项
-4. 只输出 markdown 内容
+1. The order must be strictly: Reflection Review → Annotation Responses → New Content
+2. Adjust content depth and direction based on student feedback and annotations
+3. Each lesson should cover at least one mastery item from the syllabus
+4. Output only markdown content
 
-## 教学质量要求
-5. **类比优先**：每个抽象概念至少配一个生活化类比或具体场景，帮助学生建立直觉
-6. **难度自适应**：如果学生反馈中表现出理解困难（多处批注、反馈提问多），降低本篇难度并增加基础铺垫；如果学生表现出游刃有余，适当提升挑战性
-7. **认知负荷控制**：正文部分每次只引入1-2个新概念，不要信息过载
-8. **先why后what**：先讲为什么需要这个概念（动机/问题），再讲概念本身
-9. **思考题层次**：至少一题是应用级（把概念用到新场景），至少一题是分析级（比较、判断、推理）
-10. **掌握项标记**：在文档最末尾（反馈区之后）追加一个隐藏注释块，列出本篇覆盖了哪些大纲掌握项的原文（必须与大纲中的文字完全一致），格式如下：
-    <!-- mastery: 能够解释核心概念A; 能够应用概念A解决简单问题 -->
+## Teaching Quality Requirements
+5. **Analogy first**: every abstract concept gets at least one everyday analogy or concrete scenario to build intuition
+6. **Adaptive difficulty**: if the student's feedback shows comprehension difficulty (many annotations, many questions in feedback), lower the difficulty and add more foundational groundwork; if the student shows ease, raise the challenge appropriately
+7. **Cognitive load control**: the main content introduces only 1–2 new concepts at a time — no information overload
+8. **Why before what**: explain why the concept is needed (motivation/problem) before explaining the concept itself
+9. **Question tiers**: at least one question is application-level (applying the concept to a new scenario) and at least one is analysis-level (comparing, judging, reasoning)
+10. **Mastery item marker**: append a hidden comment block at the very end of the lesson (after the feedback section) listing which mastery items from the syllabus this lesson covers (text must match the syllabus exactly), in the format:
+    <!-- mastery: be able to explain core concept A; be able to apply concept A to solve simple problems -->
 """
 
-ANNOTATION_ANSWER_PROMPT = """你是一个一对一学习导师。学生正在阅读材料，并对划线内容提出了一个即时问题。
+ANNOTATION_ANSWER_PROMPT = """You are a one-on-one learning tutor. The student is reading material and has asked an immediate question about something they highlighted.
 
-## 回答要求
-1. 直接回答问题，先把这段话的意思讲清楚，再补必要背景
-2. 不要泛泛扩展到整门课，除非这是理解该划线内容所必需
-3. 如果学生的问题里有误解，温和但明确地指出
-4. 用中文回答，控制在 2-5 段
-5. 不要输出 markdown 标题
+## Response Requirements
+1. Answer the question directly — first clarify what this passage means, then add necessary background
+2. Do not digress into the broader course unless it is necessary to understand this specific highlighted passage
+3. If the student's question contains a misconception, point it out gently but clearly
+4. Keep your response to 2–5 paragraphs
+5. Do not output markdown headings
 """
 
-EVAL_LESSON_PROMPT = """你是一个基于 Bloom 2-Sigma 理论的一对一苏格拉底式导师。
+EVAL_LESSON_PROMPT = """You are a one-on-one Socratic tutor grounded in Bloom's 2-Sigma theory.
 
-大纲中所有掌握项已经全部覆盖完毕。现在生成评估篇，只需要回答最后一篇的思考题和批注困惑，不包含任何新内容。
+All mastery items in the syllabus have been fully covered. Now generate the evaluation lesson — it only needs to address the final lesson's reflection questions and annotation questions, and contains no new content.
 
-## 课程大纲
+## Course Syllabus
 {syllabus}
 
-## 上一篇课文
+## Previous Lesson
 {last_lesson}
 
-## 上一篇课文的学生反馈
+## Student Feedback on the Previous Lesson
 {feedback}
 
-## 上一篇课文中的学生批注
+## Student Annotations on the Previous Lesson
 {annotations}
 
-## 上一篇的真实思考题（以下是上一篇文末真实列出的思考题原文，复盘必须严格逐题对应它）
+## Actual Reflection Questions from the Previous Lesson (the review must map to these strictly, question by question)
 {last_questions}
 
-## 输出格式（严格遵守，第一行必须是 <!-- eval-article -->）
+## Output Format (follow strictly — the first line must be <!-- eval-article -->)
 
 ```markdown
 <!-- eval-article -->
 
-# [课题名] · 最终评估
+# [Topic Name] · Final Evaluation
 
-> 本篇为课程评估篇，不含新内容。
-> 作用：解答最后一篇的思考题与批注困惑，确认你已完全掌握。
-
----
-
-## 上一篇思考题复盘
-
-> 📝 本模块评估你对上一篇思考题的回答，并给出正确答案。
-
-### 你的回答评估
-
-[逐题评估，标注 ✅ / ❌ / ⚠️，并简要说明理由]
-
-### 正确答案
-
-[严格按「上一篇的真实思考题」逐题复盘：上一篇有几题就复盘几题，题号、顺序、题面与原题一致，不得遗漏、新增或改写成泛化主题；即使学生未作答也要逐题给出正确答案。格式如下：]
-
-**第1题：** [题目简述]
-> [完整答案和解析]
-
-（……依此类推，直到覆盖「上一篇的真实思考题」中的最后一题）
+> This is the course evaluation lesson — it contains no new content.
+> Purpose: to address the final lesson's reflection questions and annotations, confirming you have fully mastered the material.
 
 ---
 
-## 批注解答
+## Previous Lesson Reflection Review
 
-> 💬 本模块解答学生在上一篇中标记的所有困惑。
+> 📝 This section evaluates your answers to the previous lesson's reflection questions and provides correct answers.
 
-[若无批注，写"上一篇中没有批注。"]
+### Your Answer Evaluation
+
+[Evaluate each answer in turn: ✅ / ❌ / ⚠️ with a brief explanation]
+
+### Correct Answers
+
+[Review each question strictly following the "Actual Reflection Questions from the Previous Lesson": review exactly as many questions as appeared, in the same order and with the same wording, with none omitted, added, or reworded into a generalized theme. Even if the student did not answer, provide the correct answer for each question. Format:]
+
+**Question 1:** [brief description]
+> [Complete answer and analysis]
+
+(…continue until all questions from the "Actual Reflection Questions from the Previous Lesson" are covered)
 
 ---
 
-## 你的反馈
+## Annotation Responses
 
-> 写下你对这门课的最终感想、仍有疑问的地方，或希望延伸的方向。
-> 当你读完本篇后，告诉我"我读完了"，系统将自动为你生成完整的总结。
+> 💬 This section addresses all comprehension questions the student marked in the previous lesson.
+
+[If no annotations, write "No annotations in the previous lesson."]
+
+---
+
+## Your Feedback
+
+> Write your final thoughts about this course, any remaining questions, or directions you'd like to explore further.
+> When you finish reading this lesson, tell me "I've finished reading," and the system will automatically generate a complete summary for you.
 ```
 """
 
-SUMMARY_PROMPT = """你是一个课程总结专家。根据课程的完整学习过程，生成一份结构化的学习总结。
+SUMMARY_PROMPT = """You are a course summary expert. Based on the complete learning journey of the course, generate a structured learning summary.
 
-## 课程大纲
+## Course Syllabus
 {syllabus}
 
-## 所有课文内容
+## All Lesson Content
 {all_lessons}
 
-## 输出格式
+## Output Format
 
 ```markdown
-# [课题名] · 学习总结
+# [Topic Name] · Learning Summary
 
-## 知识图谱
+## Knowledge Map
 
-[核心概念及其关系，用层级列表表达]
+[Core concepts and their relationships, expressed as a hierarchical list]
 
-## 大纲复盘
+## Syllabus Review
 
-[逐条回顾每条掌握项的达成情况]
+[Review the achievement status of each mastery item]
 
-## 关键洞察
+## Key Insights
 
-[学习过程中最重要的发现和理解]
+[The most important discoveries and understandings from the learning process]
 
-## 延伸方向
+## Further Directions
 
-[值得继续探索的方向]
+[Directions worth continuing to explore]
 ```
 
-只输出 markdown 内容。
+Output only markdown content.
 """
 
 
@@ -447,7 +447,7 @@ def _extract_thought_questions(content: str) -> str:
     """
     if not content:
         return ""
-    m = re.search(r'^##\s*思考题\s*$\n(.*?)(?=^##\s|\Z)', content, re.DOTALL | re.MULTILINE)
+    m = re.search(r'^##\s*Reflection Questions\s*$\n(.*?)(?=^##\s|\Z)', content, re.DOTALL | re.MULTILINE)
     return m.group(1).strip() if m else ""
 
 
@@ -530,18 +530,18 @@ async def _extract_upload_text(file: UploadFile) -> tuple[str, str]:
             except UnicodeDecodeError:
                 continue
         else:
-            raise HTTPException(status_code=400, detail="文本文件编码无法识别，请转为 UTF-8 后重试")
+            raise HTTPException(status_code=400, detail="Text file encoding not recognized; convert to UTF-8 and retry")
     elif suffix == "pdf":
         try:
             text = _extract_pdf_text(raw)
         except Exception:
-            raise HTTPException(status_code=400, detail="PDF 解析失败，请确认文件未加密且包含可提取文本")
+            raise HTTPException(status_code=400, detail="PDF parsing failed; confirm the file is not encrypted and contains extractable text")
     else:
-        raise HTTPException(status_code=400, detail="仅支持上传 PDF、TXT 或 MD 文件")
+        raise HTTPException(status_code=400, detail="Only PDF, TXT, or MD files are supported")
 
     text = text.strip()
     if not text:
-        raise HTTPException(status_code=400, detail="文件中没有提取到可阅读文本")
+        raise HTTPException(status_code=400, detail="No readable text extracted from the file")
     return filename, text
 
 
@@ -557,19 +557,19 @@ _CODE_LANGS = {
 
 
 def _source_lesson_content(filename: str, source_text: str) -> str:
-    return f"""# 原始材料：{filename}
+    return f"""# Source Material: {filename}
 
-> 前置知识：无
-> 难度：按原始材料而定
-> 预计阅读时间：按原文长度而定
+> Prerequisites: None
+> Difficulty: determined by source material
+> Estimated reading time: determined by source length
 
-## 原文
+## Source Text
 
 {source_text}
 
-## 你的反馈
+## Your Feedback
 
-> 阅读时可以直接选中文字提问。读完后点击“我读完了”，系统会结合全文和划线问答生成下一篇。
+> While reading, select text to ask questions. When done, click "I've finished reading" and the system will generate the next lesson based on the full text and your highlight Q&A.
 """
 
 
@@ -606,14 +606,14 @@ def _annotation_to_response(annotation: Annotation) -> AnnotationResponse:
 
 def _format_annotations(annotations: list[Annotation]) -> str:
     if not annotations:
-        return "无划线问答记录。"
+        return "No highlight Q&A on record."
     blocks = []
     for item in annotations:
         history = _load_messages(item)
         turns = "\n".join(
-            f"  {'问' if m['role'] == 'user' else '答'}：{m['content']}" for m in history
+            f"  {'Question' if m['role'] == 'user' else 'Answer'}: {m['content']}" for m in history
         )
-        blocks.append(f"- 原文「{item.original_text}」\n{turns}")
+        blocks.append(f"- Highlighted text: \"{item.original_text}\"\n{turns}")
     return "\n".join(blocks)
 
 
@@ -626,10 +626,10 @@ def _annotation_system_prompt(course: Course, lesson: Lesson, selected_text: str
         context = selected_text
     return f"""{ANNOTATION_ANSWER_PROMPT}
 
-## 当前学习材料
+## Current Learning Material
 {context}
 
-## 学生划线内容
+## Student Highlighted Text
 {selected_text}
 """
 
@@ -705,16 +705,16 @@ def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
     try:
         ref_section = ""
         if req.reference.strip():
-            ref_section = f"\n\n## 参考材料（用户提供）\n\n{req.reference.strip()}"
+            ref_section = f"\n\n## Reference Material (provided by user)\n\n{req.reference.strip()}"
 
-        user_msg = f"课题：{req.name}\n学习深度：{depth_profile['label']}{ref_section}"
+        user_msg = f"Topic: {req.name}\nLearning depth: {depth_profile['label']}{ref_section}"
         syllabus_content = _strip_markdown_fences(_call_llm(_build_syllabus_prompt(req.learning_depth), user_msg))
         syllabus = Syllabus(course_id=course.id, content=syllabus_content)
         db.add(syllabus)
         db.flush()
 
         prompt = FIRST_LESSON_PROMPT.format(syllabus=syllabus_content)
-        lesson_user_msg = f"请为课题「{req.name}」按「{depth_profile['label']}」学习深度生成第一篇课文{ref_section}"
+        lesson_user_msg = f"Generate the first lesson for topic '{req.name}' at '{depth_profile['label']}' learning depth{ref_section}"
         lesson_content = _strip_markdown_fences(_call_llm(prompt, lesson_user_msg))
         lesson = Lesson(course_id=course.id, number=1, content=lesson_content)
         db.add(lesson)
@@ -736,7 +736,7 @@ def create_course(req: CreateCourseRequest, db: Session = Depends(get_db)):
     except Exception:
         logger.exception("Course creation error")
         db.rollback()
-        raise HTTPException(status_code=500, detail="课程创建失败，请稍后重试")
+        raise HTTPException(status_code=500, detail="Course creation failed; please try again")
 
 
 @router.post("/courses/from-source", response_model=CreateSourceCourseResponse)
@@ -763,12 +763,12 @@ async def create_course_from_source(
     db.flush()
 
     try:
-        user_msg = f"""课题：{course_name}
-学习深度：{depth_profile['label']}
+        user_msg = f"""Topic: {course_name}
+Learning depth: {depth_profile['label']}
 
-请根据以下用户上传原始材料生成课程大纲。大纲要服务于读懂并掌握这份材料，而不是泛泛讲同名主题。
+Generate a course syllabus based on the user-uploaded source material below. The syllabus should serve understanding and mastering this material, not broadly discussing the topic by name.
 
-## 原始材料全文
+## Full Source Material
 
 {source_text}
 """
@@ -806,7 +806,7 @@ async def create_course_from_source(
     except Exception:
         logger.exception("Source course creation error")
         db.rollback()
-        raise HTTPException(status_code=500, detail="材料课程创建失败，请稍后重试")
+        raise HTTPException(status_code=500, detail="Source course creation failed; please try again")
 
 
 @router.post("/courses/from-project", response_model=CreateSourceCourseResponse)
@@ -817,7 +817,7 @@ async def create_course_from_project(
 ):
     """上传一个文件或整个文件夹作为「项目」：每个文件直接渲染成一篇，可随时划线提问；不生成大纲、不生成下一篇。"""
     if not files:
-        raise HTTPException(status_code=400, detail="请至少上传一个文件")
+        raise HTTPException(status_code=400, detail="Please upload at least one file")
 
     extracted: list[tuple[str, str, bytes | None]] = []
     for f in files:
@@ -849,7 +849,7 @@ async def create_course_from_project(
         if content.strip():
             extracted.append((path, content, None))
     if not extracted:
-        raise HTTPException(status_code=400, detail="没有可读取的文件内容")
+        raise HTTPException(status_code=400, detail="No readable file content")
 
     extracted.sort(key=lambda item: item[0])  # 默认按文件路径字典序排列
 
@@ -861,7 +861,7 @@ async def create_course_from_project(
         elif "/" in first_path:
             project_name = first_path.split("/", 1)[0]
         else:
-            project_name = "项目"
+            project_name = "Project"
 
     course = Course(
         name=project_name,
@@ -904,7 +904,7 @@ def get_lesson_file(course_id: int, lesson_num: int, db: Session = Depends(get_d
         Course.id == course_id, Lesson.number == lesson_num
     ).first()
     if not lesson or not lesson.source_blob:
-        raise HTTPException(status_code=404, detail="该课文没有原始文件")
+        raise HTTPException(status_code=404, detail="This lesson has no source file")
     name = (lesson.source_filename or "file").rsplit("/", 1)[-1]
     media = "application/pdf" if name.lower().endswith(".pdf") else "application/octet-stream"
     return Response(content=lesson.source_blob, media_type=media)
@@ -929,7 +929,7 @@ def list_courses(db: Session = Depends(get_db)):
 def delete_course(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     db.delete(course)
     db.commit()
     return {"ok": True}
@@ -939,7 +939,7 @@ def delete_course(course_id: int, db: Session = Depends(get_db)):
 def get_course(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     progress = _mastery_progress(course.syllabus.content) if course.syllabus else 0.0
     return CourseDetailResponse(
         id=course.id, name=course.name, mode=course.mode, status=course.status,
@@ -955,9 +955,9 @@ def get_course(course_id: int, db: Session = Depends(get_db)):
 def get_syllabus(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     if not course.syllabus:
-        raise HTTPException(status_code=404, detail="大纲尚未生成")
+        raise HTTPException(status_code=404, detail="Syllabus not yet generated")
     return course.syllabus
 
 
@@ -969,9 +969,9 @@ def update_syllabus(
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     if not course.syllabus:
-        raise HTTPException(status_code=404, detail="大纲尚未生成")
+        raise HTTPException(status_code=404, detail="Syllabus not yet generated")
     course.syllabus.content = req.content
     db.commit()
     db.refresh(course.syllabus)
@@ -991,7 +991,7 @@ def _extract_title(content: str) -> str:
 def list_lessons(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     return [
         LessonListItem(
             id=lesson.id, number=lesson.number, is_evaluation=lesson.is_evaluation,
@@ -1008,10 +1008,10 @@ def list_lessons(course_id: int, db: Session = Depends(get_db)):
 def get_lesson(course_id: int, lesson_num: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
     return lesson
 
 
@@ -1025,10 +1025,10 @@ def create_annotation(
     """Highlight a passage and ask → the answer streams back (SSE); session is saved on completion."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
 
     system_prompt = _annotation_system_prompt(course, lesson, req.original_text)
     history = [{"role": "user", "content": req.comment}]
@@ -1068,7 +1068,7 @@ def create_annotation(
         except Exception:
             logger.exception("Annotation answer streaming error")
             db.rollback()
-            yield f"data: {json.dumps({'error': '划线问题回答失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'error': 'Service temporarily unavailable; please try again'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -1081,10 +1081,10 @@ def get_annotations(
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
     annotations = db.query(Annotation).filter(Annotation.lesson_id == lesson.id).order_by(Annotation.created_at).all()
     return [_annotation_to_response(a) for a in annotations]
 
@@ -1100,15 +1100,15 @@ def add_annotation_message(
     """Follow-up question in an existing highlight session — the answer streams back (SSE)."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
     annotation = db.query(Annotation).filter(
         Annotation.id == annotation_id, Annotation.lesson_id == lesson.id
     ).first()
     if not annotation:
-        raise HTTPException(status_code=404, detail="批注不存在")
+        raise HTTPException(status_code=404, detail="Annotation not found")
 
     system_prompt = _annotation_system_prompt(course, lesson, annotation.original_text)
     history = _load_messages(annotation)
@@ -1137,7 +1137,7 @@ def add_annotation_message(
         except Exception:
             logger.exception("Annotation follow-up streaming error")
             db.rollback()
-            yield f"data: {json.dumps({'error': '追问回答失败，请稍后重试'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'error': 'Service temporarily unavailable; please try again'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -1152,14 +1152,14 @@ def save_interrupted_annotation(
     """用户中途点了「停止」：把已生成的部分回答落库（首次→新建批注，追问→追加到会话）。"""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
 
     text = req.partial_answer.rstrip()
     if not text:
-        raise HTTPException(status_code=400, detail="没有可保存的内容")
+        raise HTTPException(status_code=400, detail="No content to save")
 
     if req.annotation_id is None:
         full_history = [
@@ -1183,7 +1183,7 @@ def save_interrupted_annotation(
             Annotation.id == req.annotation_id, Annotation.lesson_id == lesson.id
         ).first()
         if not annotation:
-            raise HTTPException(status_code=404, detail="批注不存在")
+            raise HTTPException(status_code=404, detail="Annotation not found")
         history = _load_messages(annotation)
         history.append({"role": "user", "content": req.question})
         history.append({"role": "assistant", "content": text})
@@ -1205,15 +1205,15 @@ def delete_annotation(
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
     annotation = db.query(Annotation).filter(
         Annotation.id == annotation_id, Annotation.lesson_id == lesson.id
     ).first()
     if not annotation:
-        raise HTTPException(status_code=404, detail="批注不存在")
+        raise HTTPException(status_code=404, detail="Annotation not found")
     db.delete(annotation)
     db.commit()
     return {"ok": True}
@@ -1228,10 +1228,10 @@ def create_feedback(
 ):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
 
     # Check if feedback already exists, update if so
     existing = db.query(Feedback).filter(Feedback.lesson_id == lesson.id).first()
@@ -1263,15 +1263,15 @@ def generate_next_lesson(
     """'我读完了' → AI generates next lesson (SSE streaming)."""
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     if course.status == "completed":
-        raise HTTPException(status_code=400, detail="课程已完结")
+        raise HTTPException(status_code=400, detail="Course already completed")
     if not course.syllabus:
-        raise HTTPException(status_code=400, detail="课程大纲尚未生成")
+        raise HTTPException(status_code=400, detail="Syllabus not yet generated")
 
     lessons = course.lessons
     if not lessons:
-        raise HTTPException(status_code=400, detail="尚无课文")
+        raise HTTPException(status_code=400, detail="No lessons yet")
 
     last_lesson = lessons[-1]
 
@@ -1292,9 +1292,9 @@ def generate_next_lesson(
 
     feedback_text = ""
     if last_feedback:
-        feedback_text = f"反馈内容：{last_feedback.content}\n思考题回答：{last_feedback.thought_answers}"
+        feedback_text = f"Feedback: {last_feedback.content}\nReflection question answers: {last_feedback.thought_answers}"
     else:
-        feedback_text = "学生没有提交反馈。"
+        feedback_text = "The student did not submit feedback."
 
     annotations_text = _format_annotations(last_annotations)
 
@@ -1304,7 +1304,7 @@ def generate_next_lesson(
     # the review section can map to them exactly, instead of relying on the model
     # to spot them inside the (possibly truncated) full text (issue #3).
     last_questions = _extract_thought_questions(last_lesson.content) or \
-        "（上一篇未显式列出思考题区块，请根据上一篇正文内容合理拟出其思考题再逐题复盘）"
+        "(The previous lesson did not explicitly include a reflection questions section; please construct reasonable reflection questions from its content and review each one.)"
 
     if course.mode == "source" and last_lesson.is_source:
         prompt = SOURCE_LESSON_PROMPT.format(
@@ -1314,7 +1314,7 @@ def generate_next_lesson(
             source_annotations=_format_annotations(last_annotations),
             lesson_number=next_number,
         )
-        user_msg = f"根据原始材料和划线问答生成第{next_number}篇课文"
+        user_msg = f"Generate lesson {next_number} based on the source material and highlight Q&A"
     elif all_mastery_done:
         prompt = EVAL_LESSON_PROMPT.format(
             syllabus=syllabus_content,
@@ -1323,11 +1323,11 @@ def generate_next_lesson(
             annotations=annotations_text,
             last_questions=last_questions,
         )
-        user_msg = "生成评估篇"
+        user_msg = "Generate the evaluation lesson"
     else:
         recent = lessons[-3:] if len(lessons) > 3 else lessons
         prev_text = "\n\n---\n\n".join(
-            f"### 第{lesson.number}篇\n{lesson.content[:20000]}" for lesson in recent
+            f"### Lesson {lesson.number}\n{lesson.content[:20000]}" for lesson in recent
         )
         prompt = NEXT_LESSON_PROMPT.format(
             syllabus=syllabus_content,
@@ -1337,7 +1337,7 @@ def generate_next_lesson(
             lesson_number=next_number,
             last_questions=last_questions,
         )
-        user_msg = f"生成第{next_number}篇课文"
+        user_msg = f"Generate lesson {next_number}"
 
     cid = course.id
 
@@ -1376,7 +1376,7 @@ def generate_next_lesson(
         except Exception:
             logger.exception("Next lesson generation error")
             db.rollback()
-            yield f"data: {json.dumps({'error': '服务暂时不可用，请稍后重试'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'error': 'Service temporarily unavailable; please try again'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -1385,7 +1385,7 @@ def _generate_summary_response(course: Course, db: Session):
     """Generate summary after evaluation article is read."""
     syllabus_content = course.syllabus.content
     all_lessons_text = "\n\n---\n\n".join(
-        f"### 第{lesson.number}篇\n{lesson.content}" for lesson in course.lessons
+        f"### Lesson {lesson.number}\n{lesson.content}" for lesson in course.lessons
     )
 
     cid = course.id
@@ -1397,7 +1397,7 @@ def _generate_summary_response(course: Course, db: Session):
                 all_lessons=all_lessons_text,
             )
             summary_content = ""
-            for content, is_final in _stream_llm(prompt, "生成课程总结"):
+            for content, is_final in _stream_llm(prompt, "Generate the course summary"):
                 if is_final:
                     summary_content = content
                 else:
@@ -1418,7 +1418,7 @@ def _generate_summary_response(course: Course, db: Session):
         except Exception:
             logger.exception("Summary generation error")
             db.rollback()
-            yield f"data: {json.dumps({'error': '总结生成失败，请重试'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'error': 'Summary generation failed; please try again'}, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 
@@ -1427,11 +1427,11 @@ def _generate_summary_response(course: Course, db: Session):
 def get_summary(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     # Summary is stored as lesson number 0
     summary = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == 0).first()
     if not summary:
-        raise HTTPException(status_code=404, detail="总结尚未生成")
+        raise HTTPException(status_code=404, detail="Summary not yet generated")
     return {"content": summary.content}
 
 
@@ -1443,10 +1443,10 @@ def get_summary(course_id: int, db: Session = Depends(get_db)):
 def get_feedback(course_id: int, lesson_num: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     lesson = db.query(Lesson).filter(Lesson.course_id == course_id, Lesson.number == lesson_num).first()
     if not lesson:
-        raise HTTPException(status_code=404, detail="课文不存在")
+        raise HTTPException(status_code=404, detail="Lesson not found")
     feedback = db.query(Feedback).filter(Feedback.lesson_id == lesson.id).first()
     if not feedback:
         return {"exists": False, "content": "", "thought_answers": ""}
@@ -1467,7 +1467,7 @@ def get_feedback(course_id: int, lesson_num: int, db: Session = Depends(get_db))
 def record_lesson_opened(course_id: int, lesson_num: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
     _record_event(db, course_id, "lesson_opened", lesson_number=lesson_num)
     db.commit()
     return {"ok": True}
@@ -1481,7 +1481,7 @@ def record_lesson_opened(course_id: int, lesson_num: int, db: Session = Depends(
 def get_course_stats(course_id: int, db: Session = Depends(get_db)):
     course = db.query(Course).filter(Course.id == course_id).first()
     if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
+        raise HTTPException(status_code=404, detail="Course not found")
 
     normal_lessons = [lesson for lesson in course.lessons if lesson.number > 0]
     total_annotations = sum(len(lesson.annotations) for lesson in normal_lessons)

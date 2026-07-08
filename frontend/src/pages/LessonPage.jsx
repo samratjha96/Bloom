@@ -572,7 +572,7 @@ export default function LessonPage() {
           onClick={() => navigate(`/course/${courseId}`)}
           className="text-emerald-600 hover:text-emerald-700 text-sm font-medium transition-colors"
         >
-          返回课程
+          Back to Course
         </button>
       </div>
     );
@@ -590,7 +590,7 @@ export default function LessonPage() {
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
-            返回课程
+            Back to Course
           </button>
           <div className="flex items-center gap-3">
             <span className="text-xs text-stone-500 font-mono tabular-nums">
@@ -637,14 +637,14 @@ export default function LessonPage() {
               <button
                 onMouseUp={(e) => e.stopPropagation()}
                 onClick={openComposerFromMarker}
-                title="向 AI 提问"
+                title="Ask AI"
                 style={{ top: Math.max(0, marker.top - 30), left: marker.left }}
                 className="absolute z-40 flex items-center gap-1 pl-1.5 pr-2 py-1 rounded-full bg-amber-400 text-stone-900 text-[11px] font-medium shadow-[0_4px_12px_-2px_rgba(180,120,0,0.4)] hover:bg-amber-300 hover:-translate-y-0.5 transition-all anim-pop cursor-pointer"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.019z" />
                 </svg>
-                提问
+                Ask
               </button>
             )}
 
@@ -673,7 +673,7 @@ export default function LessonPage() {
                 className="absolute z-50 max-w-[calc(100%-1rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] p-4 anim-pop"
               >
                 <div onMouseDown={startDrag} className="flex items-center justify-between mb-2 cursor-move select-none">
-                  <span className="text-xs font-medium text-emerald-700">划线提问</span>
+                  <span className="text-xs font-medium text-emerald-700">Highlight Q&A</span>
                   <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setComposer(null); setCardRect(null); }} className="text-stone-300 hover:text-stone-500 transition-colors p-0.5">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -692,18 +692,18 @@ export default function LessonPage() {
                       if (composer.draft.trim()) handleCreateSession();
                     }
                   }}
-                  placeholder="针对这段话提一个问题..."
+                  placeholder="Ask a question about this passage..."
                   autoFocus
                   className="w-full border border-stone-200 rounded-lg p-2.5 text-sm resize-none h-20 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none"
                 />
                 <div className="flex justify-end gap-2 mt-2">
-                  <button onClick={() => { setComposer(null); setCardRect(null); }} className="px-3 py-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors">取消</button>
+                  <button onClick={() => { setComposer(null); setCardRect(null); }} className="px-3 py-1.5 text-xs text-stone-500 hover:text-stone-700 transition-colors">Cancel</button>
                   <button
                     onClick={handleCreateSession}
                     disabled={!composer.draft.trim()}
                     className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 transition-all duration-200 cursor-pointer"
                   >
-                    提问
+                    Ask
                   </button>
                 </div>
               </div>
@@ -721,14 +721,14 @@ export default function LessonPage() {
                   className="absolute z-50 max-w-[calc(100%-1rem)] bg-white rounded-xl border border-emerald-200 shadow-[0_12px_30px_-10px_rgba(0,0,0,0.18)] flex flex-col anim-pop"
                 >
                   <div onMouseDown={startDrag} className="flex items-center justify-between px-4 py-2.5 border-b border-stone-100 shrink-0 cursor-move select-none">
-                    <span className="text-xs font-medium text-emerald-700">划线追问</span>
+                    <span className="text-xs font-medium text-emerald-700">Follow-up Q&A</span>
                     <div className="flex items-center gap-0.5">
-                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleDeleteSession(s.id)} title="删除这条提问" className="text-stone-300 hover:text-rose-500 transition-colors p-1">
+                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => handleDeleteSession(s.id)} title="Delete this annotation" className="text-stone-300 hover:text-rose-500 transition-colors p-1">
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.02-2.09 2.201v.916" />
                         </svg>
                       </button>
-                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setOpenId(null); setCardRect(null); }} title="缩小到旁边" className="text-stone-300 hover:text-stone-600 transition-colors p-1">
+                      <button onMouseDown={(e) => e.stopPropagation()} onClick={() => { setOpenId(null); setCardRect(null); }} title="Minimize" className="text-stone-300 hover:text-stone-600 transition-colors p-1">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
                         </svg>
@@ -740,7 +740,7 @@ export default function LessonPage() {
                       {s.original_text.length > 120 ? s.original_text.slice(0, 120) + '...' : s.original_text}
                     </p>
                     <div className="space-y-3">
-                      {s.messages.map((m, i) => (
+                      {(s.messages || []).map((m, i) => (
                         m.role === 'user' ? (
                           <div key={i} className="flex justify-end">
                             <div className="bg-stone-100 text-stone-700 text-sm rounded-2xl rounded-br-sm px-3 py-2 max-w-[88%] whitespace-pre-wrap">{m.content}</div>
@@ -759,7 +759,7 @@ export default function LessonPage() {
                         ) : (
                           <div className="flex items-center gap-2 text-xs text-stone-400 pl-3">
                             <span className="w-3 h-3 rounded-full border-2 border-stone-200 border-t-emerald-600 animate-spin" />
-                            AI 正在回答...
+                            AI is answering...
                           </div>
                         )
                       )}
@@ -770,7 +770,7 @@ export default function LessonPage() {
                       value={followDraft}
                       onChange={(e) => setFollowDraft(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); handleFollowUp(s.id); } }}
-                      placeholder="继续追问..."
+                      placeholder="Continue asking..."
                       rows={1}
                       className="flex-1 min-w-0 border border-stone-200 rounded-lg px-3 py-2 text-sm resize-none transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none max-h-24"
                     />
@@ -780,7 +780,7 @@ export default function LessonPage() {
                         className="px-3 py-2 text-xs bg-rose-50 text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-100 shrink-0 transition-all duration-200 cursor-pointer inline-flex items-center gap-1.5"
                       >
                         <span className="w-2.5 h-2.5 rounded-[2px] bg-rose-500" />
-                        停止
+                        Stop
                       </button>
                     ) : (
                       <button
@@ -788,7 +788,7 @@ export default function LessonPage() {
                         disabled={!followDraft.trim()}
                         className="px-3 py-2 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 shrink-0 transition-all duration-200 cursor-pointer"
                       >
-                        发送
+                        Send
                       </button>
                     )}
                   </div>
@@ -810,25 +810,25 @@ export default function LessonPage() {
           {/* Feedback section */}
           {!isProject && (
           <div className="bg-white rounded-2xl border border-stone-200/60 p-6 md:p-8 mb-8">
-            <h3 className="text-sm font-medium text-stone-800 mb-1">你的反馈</h3>
+            <h3 className="text-sm font-medium text-stone-800 mb-1">Your Feedback</h3>
             <p className="text-xs text-stone-400 mb-5">
-              写下你的问题、感悟、不理解的地方，或者你希望下一篇深入探讨的方向。
+              Write your questions, insights, anything you did not understand, or directions you want the next lesson to explore.
             </p>
             <textarea
               value={feedbackContent}
               onChange={(e) => { setFeedbackContent(e.target.value); setFeedbackSaved(false); }}
-              placeholder="在这里写下你的反馈..."
+              placeholder="Write your feedback here..."
               className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-32 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none mb-4"
             />
             {!isSourceLesson && (
               <details className="mb-4">
                 <summary className="text-xs text-stone-400 cursor-pointer hover:text-stone-600 transition-colors select-none">
-                  思考题回答（可选）
+                  Thought Question Answers (Optional)
                 </summary>
                 <textarea
                   value={thoughtAnswers}
                   onChange={(e) => { setThoughtAnswers(e.target.value); setFeedbackSaved(false); }}
-                  placeholder="在这里写下你对思考题的回答..."
+                  placeholder="Write your answers to the thought questions here..."
                   className="w-full border border-stone-200 rounded-lg p-3.5 text-sm resize-none h-24 transition-colors hover:border-stone-300 focus:border-emerald-600 outline-none mt-3"
                 />
               </details>
@@ -839,10 +839,10 @@ export default function LessonPage() {
                 disabled={submittingFeedback}
                 className="px-4 py-2 text-sm bg-stone-100 text-stone-600 rounded-lg hover:bg-stone-200 disabled:opacity-50 transition-all duration-200 cursor-pointer"
               >
-                {submittingFeedback ? '保存中...' : '保存反馈'}
+                {submittingFeedback ? 'Saving...' : 'Save Feedback'}
               </button>
               {feedbackSaved && (
-                <span className="text-xs text-emerald-600 font-medium">已保存</span>
+                <span className="text-xs text-emerald-600 font-medium">Saved</span>
               )}
             </div>
           </div>
@@ -856,7 +856,7 @@ export default function LessonPage() {
                 onClick={() => { setError(''); handleReadDone(); }}
                 className="text-xs text-rose-700 underline hover:text-rose-900 ml-3 shrink-0"
               >
-                重试
+                Retry
               </button>
             </div>
           )}
@@ -866,14 +866,14 @@ export default function LessonPage() {
             <div className="bg-white rounded-2xl border border-emerald-200/40 p-6 md:p-8">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-4 h-4 rounded-full border-2 border-stone-200 border-t-emerald-600 animate-spin" />
-                <h3 className="text-xs font-medium text-emerald-700 uppercase tracking-wide">生成下一篇课文</h3>
+                <h3 className="text-xs font-medium text-emerald-700 uppercase tracking-wide">Generating Next Lesson</h3>
               </div>
               {streamContent ? (
                 <div className="prose prose-sm prose-stone max-w-none">
                   <Markdown>{streamContent}</Markdown>
                 </div>
               ) : (
-                <p className="text-stone-400 text-sm">AI 正在思考中...</p>
+                <p className="text-stone-400 text-sm">AI is thinking...</p>
               )}
             </div>
           ) : (
@@ -881,12 +881,12 @@ export default function LessonPage() {
               onClick={handleReadDone}
               className="w-full py-3.5 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 transition-all duration-200 cursor-pointer"
             >
-              {isSourceLesson ? '我读完原文了 — 生成下一篇' : '我读完了 — 生成下一篇'}
+              {isSourceLesson ? 'Done reading the source — Generate next lesson' : 'Done reading — Generate next lesson'}
             </button>
           ))}
 
           <p className="text-xs text-stone-300 text-center mt-4">
-            提示：选中文字后点冒出的「提问」图标向 AI 发问（划线处会标黄）；窗口可拖动，缩小后点右侧小圆点重新打开
+Tip: Select text, then click the "Ask" button that appears to question the AI (the selection turns yellow). The panel is draggable; minimize it and click the dot on the right to reopen.
           </p>
         </main>
 
@@ -906,7 +906,7 @@ export default function LessonPage() {
               </button>
             )}
             <div className="lg:sticky lg:top-20">
-              <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3">{isProject ? '文件' : '章节'}</h3>
+              <h3 className="text-xs font-medium text-stone-400 uppercase tracking-wide mb-3">{isProject ? 'Files' : 'Chapters'}</h3>
               <nav className="space-y-0.5">
                 {!isProject && (
                 <button
@@ -918,7 +918,7 @@ export default function LessonPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.007v.008H3.75V6.75zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zM3.75 12h.007v.008H3.75V12zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm-.375 5.25h.007v.008H3.75v-.008zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
                     </svg>
                   </span>
-                  <span>大纲</span>
+                  <span>Outline</span>
                 </button>
                 )}
 
@@ -939,21 +939,21 @@ export default function LessonPage() {
                           {String(l.number).padStart(2, '0')}
                         </span>
                         <span className="truncate">
-                          {(isProject && l.source_filename) || l.title || `第 ${String(l.number).padStart(2, '0')} 篇`}
+                          {(isProject && l.source_filename) || l.title || `Lesson ${String(l.number).padStart(2, '0')}`}
                         </span>
                         {l.is_source && (
                           <span className={`text-[10px] ml-auto shrink-0 ${isActive ? 'text-amber-300' : 'text-amber-500'}`}>
-                            原文
+                            Source
                           </span>
                         )}
                         {l.is_evaluation && (
                           <span className={`text-[10px] ml-auto shrink-0 ${isActive ? 'text-amber-300' : 'text-amber-500'}`}>
-                            评估
+                            Eval
                           </span>
                         )}
                       </div>
                       {l.has_feedback && !isActive && (
-                        <span className="ml-7 text-[10px] text-emerald-500">已反馈</span>
+                        <span className="ml-7 text-[10px] text-emerald-500">Feedback Given</span>
                       )}
                     </button>
                   );
@@ -964,7 +964,7 @@ export default function LessonPage() {
                 {sessions.length > 0 && (
                   <div className="px-3 py-1">
                     <span className="text-[10px] text-stone-300">
-                      {sessions.length} 个划线提问
+                      {sessions.length} highlight annotation{sessions.length !== 1 ? 's' : ''}
                     </span>
                   </div>
                 )}
